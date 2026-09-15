@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.venv*/
+.cache/
+.models/
+.runtime/
+outputs/
+private_inputs/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+*.pyc
+deployment/ragflow/upstream/

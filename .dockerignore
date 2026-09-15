@@ -1,0 +1,11 @@
+.git
+.venv*
+.cache
+.models
+.runtime
+outputs
+private_inputs
+.env*
+__pycache__
+**/__pycache__
+deployment/ragflow/upstream

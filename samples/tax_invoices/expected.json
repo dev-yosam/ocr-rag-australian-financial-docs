@@ -1,0 +1,11 @@
+{
+  "document_type": "tax_invoice",
+  "business_name": "Example Synthetic Services Pty Ltd",
+  "abn": "00000000000",
+  "invoice_number": "SYN-2026-0001",
+  "invoice_date": "2026-09-11",
+  "subtotal": 1000.00,
+  "gst": 100.00,
+  "total": 1100.00,
+  "currency": "AUD"
+}

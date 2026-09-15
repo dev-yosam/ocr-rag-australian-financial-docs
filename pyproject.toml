@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocr-rag-australian-financial-docs"
+version = "0.1.0"
+description = "Local synthetic Australian invoice parsing with PaddleOCR-VL and RAGFlow"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.141.1", "pydantic==2.13.5", "httpx==0.28.1",
+  "uvicorn==0.52.4", "simplejson==4.1.2", "Pillow==12.3.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1"]
+ocr = ["paddleocr[doc-parser]==3.6.0", "paddlex==3.6.0", "paddlepaddle==3.2.1"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -p no:cacheprovider"
+markers = [
+  "integration: requires a running external dependency or actual OCR models",
+  "paddleocr_integration: requires actual local PaddleOCR-VL-1.6 models",
+  "ragflow_integration: writes synthetic Markdown to a configured self-hosted dataset",
+]

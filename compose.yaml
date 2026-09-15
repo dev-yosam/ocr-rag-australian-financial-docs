@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    network_mode: none
+    environment:
+      PADDLEOCR_DEVICE: cpu
+    command: ["python", "-m", "app.cli", "--help"]

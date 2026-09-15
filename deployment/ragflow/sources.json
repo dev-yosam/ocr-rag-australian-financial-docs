@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/infiniflow/ragflow",
+  "tag": "v0.27.2",
+  "files": {
+    "docker-compose.yml": "33e23cea41f95e8854b10e128d89630043fdf253aa168ea667f49ecee08d89bc",
+    "docker-compose-base.yml": "097dbf316c754c2a8b14492e93b5296439f3add08e1a416335c1123f65ac0033",
+    "service_conf.yaml.template": "fca8837f5e7e0779c09e1a88704ef9a8cb637ecb44a93c3b5b994e941e677b0e",
+    "entrypoint.sh": "8583d25e32d0f80470760412300cda33e944ab6b69605ad80fb011f74f1dba69",
+    "init.sql": "68217c32597373c52bead702e38b740c5d14279f8fd226def77780cdb7eaa125",
+    ".env": "888ae305ce4da5ad4fb7cd78c8401298605b499e9cce722e733d556d8cda2fdb"
+  }
+}
