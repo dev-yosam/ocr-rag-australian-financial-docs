@@ -17,7 +17,8 @@ from app.rag.artifacts import prepare
 def test_artifacts_and_offline_preparation(repo, fake_parser):
     result = InvoicePipeline(Settings(root=repo), fake_parser).process("invoice.png", "sample")
     output = repo / "outputs/sample"
-    assert result["invoice"]["total"] == 1100
+    assert result["invoice"]["total_cost"] == 1100
+    assert len(result["invoice"]) == 14
     assert read_json(output / "raw.json")[0]["fixture"] == "FAKE"
     assert read_json(output / "manifest.json")["status"] == "completed"
     receipt = prepare(repo, "outputs/sample")
@@ -78,8 +79,9 @@ def test_api_does_not_leak_request_or_document(repo, fake_parser, caplog):
         assert client.get("/health").json()["ocr_readiness"] == "not_checked"
         response = client.post("/v1/invoices/process", json={"source": "invoice.png"})
         assert response.status_code == 200
-        assert response.json()["invoice"]["total"] == 1100
-        assert '"total": 1100.00' in response.text
+        assert response.json()["invoice"]["total_cost"] == 1100
+        assert len(response.json()["invoice"]) == 14
+        assert '"total_cost": 1100.00' in response.text
         bad = client.post("/v1/invoices/process", json={"source": {"secret": "PRIVATE"}})
         assert bad.status_code == 422
         assert "PRIVATE" not in bad.text

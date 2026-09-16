@@ -4,14 +4,19 @@ Local-first processing of a **synthetic Australian tax invoice** using the full
 PaddleOCR-VL-1.6 pipeline, conservative rule-based extraction, Pydantic validation,
 and a RAGFlow HTTP integration boundary.
 
-**Status: implementation is available; real end-to-end acceptance remains blocked.**
-The application/unit tests and dependency checks run on Windows Python 3.13.7.
-The real OCR attempt did not complete; RAGFlow live testing is blocked by an
-unavailable Docker daemon. See `VALIDATION.md` for exact outcomes. Fake fixtures
-are explicitly identified and are never presented as model output.
+**Status: early local prototype; full acceptance is not complete.**
+One user-authorized real PNG completed full CPU OCR and produced raw JSON,
+Markdown and extracted JSON; the user confirmed its total. A larger JPG timed
+out. This is not a general accuracy or performance benchmark. GPU, Docker runtime
+and live RAGFlow ingestion remain unverified. See `VALIDATION.md`.
 
-This directory was created as a new project. It was not cloned from GitHub,
-contains no initialized Git history, and has no commits or remote modifications.
+The output now follows the provisional **14-field TIRBIC schema**, version
+`tirbic-14-v1`. This is a breaking change from the original nine-key schema.
+See [field definitions and migration](docs/TIRBIC_SCHEMA.md). Matching tests use
+synthetic data; no new real OCR accuracy claim follows from this schema update.
+
+This project began as a fresh directory rather than a GitHub clone. Git history
+and remote operations are controlled by the user.
 
 ## Architecture
 
@@ -164,22 +169,29 @@ Failed runs cannot be prepared for RAGFlow. A forced host termination can leave 
 
 ## Extraction contract
 
-- Keys: document_type, business_name, abn, invoice_number, invoice_date, subtotal,
-  gst, total, currency. `document_type=tax_invoice`; default currency is AUD.
-- Missing, conflicting, or unsafe-to-interpret fields are null. No inferred GST,
-  arithmetic filling, confidence score, ABN lookup, or legal-validity claim.
-- Supplier/customer labels are distinguished. Extraction accepts explicit labels
-  in prose, Markdown table rows and simple HTML table rows. It is deliberately
-  conservative; arbitrary invoice layouts may produce nulls.
-- ABN and invoice identifiers remain strings. Only eleven-digit ABN shape is
-  checked, not registration or checksum validity.
-- Unambiguous dates become ISO dates. `03/04/2026` stays null. English month names,
-  ISO dates and unambiguous numeric dates are supported.
-- Amounts use finite Decimal, up to 18 digits including at most two decimal
-  places. Decimal is serialized directly as JSON numbers via simplejson; no
-  binary float conversion. NaN/Infinity and fractional cents are rejected.
-- Explicit foreign currency is rejected for this AUD-only milestone.
-- Pydantic validates shape/types, not the factual accuracy of OCR output.
+- Exact 14 output keys and provisional meanings are documented in
+  [TIRBIC_SCHEMA.md](docs/TIRBIC_SCHEMA.md). All fields allow null; document type
+  is classified from explicit titles instead of defaulting to tax_invoice.
+- No external LLM, Azure request, model fine-tuning, or invented confidence is
+  introduced. This is local rule-based extraction of saved OCR text.
+- Prose labels, adjacent label/value lines, HTML and Markdown key/value rows,
+  and a header row followed by a matching value row are supported. Complex
+  merged table rows are skipped. Arbitrary layouts may still produce nulls.
+- A bare `Date` is not assigned to issue/expense/due date. Conflicting or ambiguous
+  dates remain null. Different purchase and payment dates remain unresolved.
+- Paid status and goods/service classification require explicit supported labels.
+  Missing evidence and partial/mixed cases remain null.
+- Taxable extent requires an explicitly labelled percentage (0..100). A phrase
+  such as "includes GST" does not establish 100% taxable sales.
+- The >=1000 flag is derived from an unambiguous total, without calculating missing
+  amounts. The inclusive boundary is provisional pending client confirmation.
+- Decimal amounts are finite JSON numbers, not strings or binary floats. Explicit
+  foreign currency is still rejected; AUD-only remains a deployment assumption
+  although currency is no longer an output key.
+- Seller ABNs are eleven-digit strings, without external verification. Pydantic
+  checks structure and types, not OCR accuracy or legal validity.
+- Manifest `schema_version` identifies the extraction contract. Old run artifacts
+  remain unchanged and must not be compared as if they used the new keys.
 
 ## Local API
 

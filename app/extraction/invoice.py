@@ -5,6 +5,7 @@ from typing import Protocol
 
 from app.core.errors import ExtractionError
 from app.schemas.invoice import TaxInvoice
+from app.extraction.structure import document_rows, label, labelled_pairs
 
 
 class InvoiceExtractor(Protocol):
@@ -44,59 +45,104 @@ def money(value: str) -> Decimal | None:
         return None
 
 
+LABELS = {
+    "seller_business_name": {"supplier", "supplier name", "business name", "seller", "seller name", "seller business name"},
+    "seller_abn": {"abn", "supplier abn", "seller abn", "a.b.n."},
+    "document_number": {"invoice number", "invoice no", "invoice no.", "invoice #", "receipt number", "receipt no", "receipt no.", "receipt #", "document number", "bill number"},
+    "date_of_issue": {"invoice date", "date of invoice", "issue date", "date issued", "date of issue", "receipt date"},
+    "date_of_expense": {"date of expense", "purchase date", "transaction date", "payment date", "date paid"},
+    "gst": {"gst", "gst (10%)", "gst amount", "total gst"},
+    "total_cost": {"total", "grand total", "total (inc gst)", "total (incl. gst)", "total incl gst", "total including gst", "total cost"},
+    "payment_due_date": {"payment due date", "due date", "date due"},
+    "buyer_identity": {"customer", "bill to", "buyer", "recipient", "buyer identity", "buyer name", "customer name", "buyer abn", "customer abn"},
+    "nature_of_expense": {"nature of expense", "expense type"},
+    "paid": {"paid", "payment status", "status of payment"},
+    "taxable_sale_extent": {"taxable sale extent", "taxable sale extent (%)", "taxable percentage"},
+}
+TITLES = {"tax invoice": "tax_invoice", "invoice": "invoice", "receipt": "receipt",
+          "bill": "bill", "customer copy": "customer_copy"}
+
+KNOWN = set().union(*LABELS.values()) | set(TITLES) | {
+    "currency", "date", "subtotal", "sub total", "amount due", "balance due",
+    "document type", "name", "description", "amount", "quantity", "price", "unit price",
+}
+
+
+def invoice_rows(markdown: str) -> list[list[str]]:
+    """Split a standalone document heading joined to an explicitly labelled ABN.
+
+    This does not infer a seller from an arbitrary company/address line, nor
+    search unlabelled digit sequences. Preserve buyer/seller section handling.
+    """
+    rows = []
+    titles = "|".join(re.escape(title) for title in sorted(TITLES, key=len, reverse=True))
+    header = re.compile(
+        rf"^({titles})\s*[-–—:：|]\s*((?:(?:supplier|seller|buyer|customer)\s+)?(?:abn|a\.b\.n\.))\s*[:：]?\s+(.+)$",
+        re.I,
+    )
+    for row in document_rows(markdown):
+        match = header.fullmatch(row[0].strip()) if len(row) == 1 else None
+        if match:
+            rows.extend([[match[1]], [match[2], match[3]]])
+        else:
+            rows.append(row)
+    return rows
+
+
 def labelled_lines(markdown: str) -> list[tuple[str, str]]:
-    """Read explicit labels in prose, Markdown tables, and HTML table rows."""
-    from html import unescape
-    text = re.sub(r"</tr\s*>", "\n", markdown, flags=re.I)
-    text = re.sub(r"</t[dh]\s*>", " | ", text, flags=re.I)
-    text = re.sub(r"<[^>]+>", "", text)
-    pairs = []
-    customer_section = False
-    for line in unescape(text).splitlines():
-        line = re.sub(r"^\s*#+\s*", "", line)
-        line = re.sub(r"[*_`]", "", line).strip().strip("|").strip()
-        if re.match(r"^(customer|bill to|buyer|recipient)(?:\s*:|$)", line, re.I):
-            customer_section = True
-        elif re.match(r"^(supplier|seller|invoice|business name)\b", line, re.I):
-            customer_section = False
-        parts = re.split(r"\s*\|\s*|\s*:\s*", line, maxsplit=1)
-        if len(parts) == 2:
-            if customer_section and parts[0].strip().lower() == "abn":
-                continue
-            pairs.append((parts[0].strip().lower(), parts[1].strip().strip("|").strip()))
-    return pairs
+    return labelled_pairs(invoice_rows(markdown), KNOWN)
+
+
+def percent(value: str) -> Decimal | None:
+    if not re.fullmatch(r"\d+(?:\.\d+)?\s*%", value):
+        return None
+    number = Decimal(value.rstrip("% "))
+    return number if 0 <= number <= 100 else None
+
+
+def payment_status(value: str) -> bool | None:
+    value = value.lower()
+    if value in {"paid", "paid in full", "fully paid", "yes", "true"}:
+        return True
+    if value in {"unpaid", "not paid", "no", "false"}:
+        return False
+    return None
 
 
 class RuleInvoiceExtractor:
-    LABELS = {
-        "business_name": {"supplier", "supplier name", "business name", "seller"},
-        "abn": {"abn", "supplier abn", "seller abn"},
-        "invoice_number": {"invoice number", "invoice no", "invoice no.", "invoice #"},
-        "invoice_date": {"invoice date", "date of invoice"},
-        "subtotal": {"subtotal", "sub total", "subtotal (ex gst)", "subtotal (excl. gst)"},
-        "gst": {"gst", "gst (10%)", "gst amount"},
-        "total": {"total", "grand total", "total (inc gst)", "total (incl. gst)"},
-    }
+    LABELS = LABELS
 
     def extract(self, document: str) -> TaxInvoice:
-        pairs = labelled_lines(document)
-        # M1 is explicitly AUD-only. Do not silently relabel foreign invoices.
+        rows = invoice_rows(document)
+        pairs = labelled_pairs(rows, KNOWN)
+        # This deployment remains AUD-only although currency is not an output key.
         if re.search(r"\b(?:USD|NZD|EUR|GBP|CAD|JPY|CNY|SGD|HKD)\b|US\$|NZ\$|[€£¥]", document, re.I):
             raise ExtractionError("Unsupported explicit currency")
-        for label, value in pairs:
-            if label == "currency" and value.upper() != "AUD":
+        for key, value in pairs:
+            if key == "currency" and value.upper() != "AUD":
                 raise ExtractionError("Unsupported explicit currency")
         values = {}
-        for field, labels in self.LABELS.items():
-            candidates = [value for label, value in pairs if label in labels]
-            if field == "invoice_date":
-                candidates = [parse_date(value) for value in candidates]
-            elif field in {"subtotal", "gst", "total"}:
-                candidates = [money(value) for value in candidates]
-            elif field == "abn":
-                candidates = [re.sub(r"\s", "", value) for value in candidates]
-                candidates = [value if re.fullmatch(r"[0-9]{11}", value) else None for value in candidates]
+        titles = [TITLES[label(row[0])] for row in rows if len(row) == 1 and label(row[0]) in TITLES]
+        titles += [TITLES.get(label(v)) for k, v in pairs if k == "document type"]
+        values["document_type"] = one(titles)
+        for field, labels in LABELS.items():
+            candidates = [v for k, v in pairs if k in labels]
+            if field in {"date_of_issue", "date_of_expense", "payment_due_date"}:
+                candidates = [parse_date(v) for v in candidates]
+            elif field in {"gst", "total_cost"}:
+                candidates = [money(v) for v in candidates]
+            elif field == "seller_abn":
+                candidates = [re.sub(r"\s", "", v) for v in candidates]
+                candidates = [v if re.fullmatch(r"[0-9]{11}", v) else None for v in candidates]
+            elif field == "paid":
+                candidates = [payment_status(v) for v in candidates]
+            elif field == "nature_of_expense":
+                candidates = [v.lower() if v.lower() in {"goods", "service"} else None for v in candidates]
+            elif field == "taxable_sale_extent":
+                candidates = [percent(v) for v in candidates]
             else:
-                candidates = [value if value and value.lower() not in {"n/a", "null", "unknown"} else None for value in candidates]
+                candidates = [v if v and v.lower() not in {"n/a", "null", "unknown"} else None for v in candidates]
             values[field] = one(candidates)
+        total = values["total_cost"]
+        values["is_total_cost_equal_to_or_higher_than_1000"] = total >= Decimal("1000") if total is not None else None
         return TaxInvoice(**values)

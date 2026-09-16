@@ -37,3 +37,9 @@ Tests: `python -m pytest -m "not integration"`; real OCR:
 RUN_PADDLEOCR_INTEGRATION / RUN_RAGFLOW_INTEGRATION. Missing services are blockers,
 not evidence of success. Verify against official documentation before changing
 dependencies or provider contracts.
+
+User-approved schema extension: align local extraction with the supplied 14-field
+TIRBIC contract for tax invoices, bills, receipts, customer copies and invoices.
+Use docs/TIRBIC_SCHEMA.md for provisional semantics and pending client decisions.
+Keep synthetic tests and private-data restrictions in force. GPU and RAGFlow
+runtime deployment are not part of this schema change.
