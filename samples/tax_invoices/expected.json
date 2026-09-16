@@ -1,11 +1,16 @@
 {
   "document_type": "tax_invoice",
-  "business_name": "Example Synthetic Services Pty Ltd",
-  "abn": "00000000000",
-  "invoice_number": "SYN-2026-0001",
-  "invoice_date": "2026-09-11",
-  "subtotal": 1000.00,
+  "document_number": "SYN-2026-0001",
+  "total_cost": 1100.00,
+  "seller_business_name": "Example Synthetic Services Pty Ltd",
+  "date_of_expense": null,
+  "date_of_issue": "2026-09-11",
+  "nature_of_expense": null,
+  "paid": null,
+  "is_total_cost_equal_to_or_higher_than_1000": true,
+  "seller_abn": "00000000000",
   "gst": 100.00,
-  "total": 1100.00,
-  "currency": "AUD"
+  "payment_due_date": null,
+  "buyer_identity": "Example Synthetic Customer",
+  "taxable_sale_extent": null
 }

@@ -1,15 +1,40 @@
 # Implementation and validation record
 
-## Outcome
+## Current outcome
 
-Application implementation and deterministic tests are delivered. **Milestone 1
-end-to-end acceptance is NOT complete.** A real PaddleOCR-VL-1.6 run did not produce
-a completed invoice on this host. No raw/Markdown/extracted result was fabricated
-to hide that failure. Self-hosted RAGFlow live ingestion has not been verified.
+The local prototype has completed one real PNG CPU OCR run (2026-09-16).
+The user confirmed its extracted total. This is **not** complete M1 acceptance:
+all-field accuracy, synthetic ground-truth OCR acceptance, GPU execution, Docker
+runtime and live RAGFlow ingestion remain unverified or previously blocked.
 
-This was a new project directory, not a successful GitHub clone. No `.git`
-directory was initialized, no branch changed, no commit made, and no remote state
-modified. All work was confined to this project after the approved scaffold step.
+The current branch updates local extraction to the supplied 14-field TIRBIC
+contract (`tirbic-14-v1`). It is a breaking schema change, not a new OCR model.
+Latest unit result: **124 passed, 1 skipped, 2 deselected**, one upstream warning.
+See `docs/TIRBIC_SCHEMA.md` for field meanings and provisional decisions.
+
+The earlier scaffold and runtime records below are historical. The user has
+since initialized Git and pushed the repository. This implementation turn made
+no Git mutations and stayed on the user's `feat/align-receipt-schema` branch.
+
+## Schema update verification (2026-09-16)
+
+- Updated schema/extractor, CLI/API assertions and independent synthetic expected
+  JSON; added synthetic cases for all 14 fields, date separation, tables, adjacent
+  lines, seller/buyer context, threshold boundaries, percentages and strict bools.
+- Command: `.venv/Scripts/python.exe -m pytest -m "not integration" -q`.
+- Result: 114 passed, 1 skipped (Windows symlink creation unavailable),
+  2 deselected (external integration), 1 Starlette/AnyIO deprecation warning.
+- Existing private PNG Markdown was re-extracted locally without running OCR or
+  uploading anything. The review JSON has total_cost and its derived >=1000 flag;
+  the other 12 fields remain null. This does NOT demonstrate improved accuracy
+  on that private image. Further layout interpretation remains necessary.
+- The private review is under ignored outputs/schema-review-d42839e18c4a, with
+  source/output hashes in review.json. It is not a new OCR run or RAG artifact.
+  Existing OCR raw/Markdown/JSON files were not overwritten.
+- Threshold uses >=1000 provisionally. Ambiguous dates, partial payment, mixed
+  nature and unsupported taxable-extent inference remain null. Client review
+  of these choices is outstanding.
+- OCR dependencies/model weights and deployment configuration are unchanged.
 
 ## Delivered behavior
 
@@ -27,10 +52,10 @@ modified. All work was confined to this project after the approved scaffold step
 - Full transitive dependency locks with package hashes, model lock, official
   RAGFlow source hashes, CPU Docker recipes, README and persistent AGENTS rules.
 
-## Commands and observed results
+## Historical baseline commands and observed results
 
 Commands were run using the project-local `.venv/Scripts/python.exe` on Windows
-Python 3.13.7. Results below reflect final unit-code changes.
+Python 3.13.7. Results below reflect the original baseline, before the 14-field schema update.
 
 | Check | Result |
 |---|---|
@@ -175,3 +200,22 @@ tests/unit/test_pipeline.py
   (host cannot create symlinks), 2 deselected, 1 upstream AnyIO deprecation warning.
 - Changed source/tests: app/paddleocr/adapter.py, tests/unit/test_adapters.py,
   tests/unit/test_cli.py. No dependency or model changes and no Git mutations.
+
+
+## Follow-up: joined title and ABN diagnosis (2026-09-16)
+
+- Diagnosed OCR structure locally without printing source values. The saved text
+  contains a standalone document heading joined to an explicitly labelled ABN.
+- Added a narrow split rule plus 10 synthetic regression cases covering separator
+  variants, malformed/unlabelled numbers, trailing text, conflicting values,
+  buyer context and a heading in an HTML cell.
+- `.venv/Scripts/python.exe -m pytest -m "not integration" -q`:
+  124 passed, 1 skipped (symlink permission), 2 deselected, 1 upstream warning.
+- Re-extraction from existing Markdown populated document_type and seller_abn
+  in addition to total_cost and its derived >=1000 flag. Ten fields remain null.
+  Total is unchanged. Newly matched values have NOT been visually verified
+  against the source image. This is extraction coverage, not measured accuracy.
+- Private artifacts: outputs/schema-diagnosis-3b1dcafb4162/extracted.json,
+  diagnostics.json and review.json. These are extraction-only review artifacts,
+  not a fresh OCR run, shared test fixture or permitted RAG submission.
+- No model, runtime, GPU, dependency or Git changes were made in this follow-up.

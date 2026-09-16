@@ -8,6 +8,7 @@ from app.core.config import Settings
 from app.core.errors import InputError, PipelineError
 from app.core.files import contained, new_run, sha256, write_json
 from app.extraction.invoice import InvoiceExtractor, RuleInvoiceExtractor
+from app.schemas.invoice import SCHEMA_VERSION
 from app.paddleocr.adapter import PaddleParser
 from app.paddleocr.normalize import normalize_markdown
 from app.paddleocr.types import DocumentParser, PartialParseError
@@ -46,6 +47,7 @@ class InvoicePipeline:
         run_id = run_id or uuid.uuid4().hex
         output = new_run(root, run_id)
         manifest = {
+            "schema_version": SCHEMA_VERSION,
             "run_id": run_id, "status": "processing", "source": path.relative_to(root).as_posix(),
             "source_sha256": sha256(path), "versions": {}, "artifacts": {},
         }
