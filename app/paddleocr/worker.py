@@ -7,7 +7,7 @@ import sys
 from app.core.config import ROOT, local_runtime
 from app.core.files import contained, read_json, sha256, write_json
 
-EXPECTED = {"paddleocr": "3.6.0", "paddlex": "3.6.0", "paddlepaddle": "3.2.1"}
+EXPECTED = {"paddleocr": "3.6.0", "paddlex": "3.6.0", "paddlepaddle-gpu": "3.2.1"}
 
 
 def deny_network(event: str, args: tuple) -> None:

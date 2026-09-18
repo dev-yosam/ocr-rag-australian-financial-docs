@@ -5,10 +5,10 @@ PaddleOCR-VL-1.6 pipeline, conservative rule-based extraction, Pydantic validati
 and a RAGFlow HTTP integration boundary.
 
 **Status: early local prototype; full acceptance is not complete.**
-One user-authorized real PNG completed full CPU OCR and produced raw JSON,
-Markdown and extracted JSON; the user confirmed its total. A larger JPG timed
-out. This is not a general accuracy or performance benchmark. GPU, Docker runtime
-and live RAGFlow ingestion remain unverified. See `VALIDATION.md`.
+One user-authorized real PNG completed OCR and produced raw JSON, Markdown and
+extracted JSON; the user confirmed its total. A larger JPG timed out. This is
+not a general accuracy or performance benchmark. Live RAGFlow ingestion remains
+unverified. See `VALIDATION.md`.
 
 The output now follows the provisional **14-field TIRBIC schema**, version
 `tirbic-14-v1`. This is a breaking change from the original nine-key schema.
@@ -41,28 +41,28 @@ at a time, not concurrent production requests.
 
 ## Prerequisites and versions
 
-- Reference runtime: Linux x86_64 / Python 3.11, preferably WSL2 + Docker Desktop.
-- Windows Python 3.13.7 was used for dependency/import checks and unit tests.
-- `paddleocr[doc-parser]==3.6.0`, `paddlex==3.6.0`, `paddlepaddle==3.2.1`.
+- Reference runtime: NVIDIA GPU / Python 3.11, preferably WSL2 + Docker Desktop.
+- Windows Python 3.11 with an NVIDIA GPU was used for dependency/import checks,
+  unit tests and one synthetic sample run.
+- `paddleocr[doc-parser]==3.6.0`, `paddlex==3.6.0`, `paddlepaddle-gpu==3.2.1`.
 - `PaddleOCRVL(pipeline_version="v1.6")`, with local PP-DocLayoutV3 and
   PaddleOCR-VL-1.6-0.9B model directories. No PP-OCR/PP-Structure substitution.
-- FastAPI 0.141.1, Pydantic 2.13.5, pytest 9.1.1. Full transitive versions and
-  distribution hashes are in `requirements/app.lock` and `requirements/ocr-cpu.lock`.
+- FastAPI 0.141.1, Pydantic 2.13.5, pytest 9.1.1. Application/test versions and
+  distribution hashes are in `requirements/app.lock`; OCR GPU packages are pinned
+  in `requirements/ocr-gpu-cu129.txt`.
 - RAGFlow v0.27.2 uses its own official container and Python runtime. Do not
   install RAGFlow into the application's Python environment.
 - RAGFlow upstream requires at least 4 CPU cores, 16 GB RAM, 50 GB disk,
   Docker 24+, Compose 2.26.1+. Allow extra memory/storage for OCR and model archives.
-- CPU inference is supported by the official documentation, but the performance
-  of this selected stack on this host has not passed acceptance. No GPU is assumed.
-- The optional `gpu:<index>` configuration does not install CUDA/GPU dependencies.
-  A GPU installation requires a separately validated PaddlePaddle GPU environment;
-  the supplied CPU lock and image are CPU-only.
+- OCR inference is GPU-only in this branch. `PADDLEOCR_DEVICE` defaults to
+  `gpu:0`. CPU PaddlePaddle must not be installed alongside `paddlepaddle-gpu`.
 
 The Python dependency lock was resolved for Python 3.11+ across platforms using
-uv 0.8.22. Resolution is not proof that Linux runtime execution passed. Docker
-builds and Linux imports could not be run on this host. Docker image tags and apt
-repositories are not digest-locked; this is a reproducible development recipe,
-not a bit-identical or production-hardened container supply chain.
+uv 0.8.22. The PaddlePaddle GPU package is installed from PaddlePaddle's CUDA
+12.9 index because the CPU and GPU distributions must not be installed together.
+Docker image tags and apt repositories are not digest-locked; this is a
+reproducible development recipe, not a bit-identical or production-hardened
+container supply chain.
 
 ## Installation
 
@@ -78,9 +78,10 @@ $env:TEMP="$PWD/.runtime/tmp"
 $env:TMP=$env:TEMP
 .\.venv\Scripts\Activate.ps1
 python -m pip --isolated install --index-url https://pypi.org/simple --cache-dir .cache/pip --require-hashes -r requirements/app.lock
-python -m pip --isolated install --index-url https://pypi.org/simple --cache-dir .cache/pip --require-hashes -r requirements/ocr-cpu.lock
+python -m pip install --cache-dir .cache/pip -r requirements/ocr-gpu-cu129.txt
 python -m pip --isolated check
 python scripts/check_environment.py
+python scripts/prepare_models.py
 ```
 
 WSL/Linux:
@@ -91,15 +92,15 @@ source .venv/bin/activate
 mkdir -p .runtime/tmp .cache/pip
 export TMPDIR="$PWD/.runtime/tmp"
 python -m pip --isolated install --cache-dir .cache/pip --require-hashes -r requirements/app.lock
-python -m pip --isolated install --cache-dir .cache/pip --require-hashes -r requirements/ocr-cpu.lock
+python -m pip install --cache-dir .cache/pip -r requirements/ocr-gpu-cu129.txt
 python -m pip --isolated check
 python scripts/check_environment.py
+python scripts/prepare_models.py
 ```
 
-The OCR lock includes application/test dependencies. The separate application
-lock allows unit tests without the heavy OCR libraries. Running from the root
-does not require an editable install; `python -m app.cli` works directly. Avoid
-reusing a Windows venv from WSL or vice versa.
+The separate application lock allows unit tests without the heavy OCR libraries.
+Running from the root does not require an editable install; `python -m app.cli`
+works directly. Avoid reusing a Windows venv from WSL or vice versa.
 
 ## Model preparation and sample processing
 
@@ -116,7 +117,7 @@ acceptance. The same current OCR timeout/runtime limitations still apply.
 From an activated project venv, after placing a JPEG/PNG in that directory:
 
 ```powershell
-$env:PADDLEOCR_DEVICE="cpu"
+$env:PADDLEOCR_DEVICE="gpu:0"
 $env:PADDLEOCR_TIMEOUT_SECONDS="300"
 python -m app.cli process "private_inputs/invoice_001.jpg" --run-id private-invoice-001
 ```
@@ -221,7 +222,7 @@ Set variables in your shell. Never print a populated environment/configuration.
 
 | Variable | Default / purpose |
 |---|---|
-| PADDLEOCR_DEVICE | cpu; optional explicit gpu:index with separately validated runtime |
+| PADDLEOCR_DEVICE | gpu:0; explicit NVIDIA GPU device in `gpu:<index>` form |
 | PADDLEOCR_TIMEOUT_SECONDS | 1800; allowed 1–3600 seconds |
 | RAGFLOW_BASE_URL | Empty; self-hosted service URL required for submit |
 | RAGFLOW_API_KEY | Empty; local RAGFlow API credential required for submit |

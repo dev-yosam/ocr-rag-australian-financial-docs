@@ -28,7 +28,7 @@ def test_worker_contract_and_output_suppression(repo, monkeypatch):
     write_json(repo / ".models/manifest.json", {})
     def run(args, root, timeout):
         assert args[1:3] == ["-m", "app.paddleocr.worker"]
-        assert args[-1] == "cpu"
+        assert args[-1] == "gpu:0"
         write_json(__import__("pathlib").Path(args[4]), {"status": "completed", "raw_pages": [{"raw": 1}],
             "markdown_pages": ["text"], "versions": {"pipeline": "PaddleOCR-VL-1.6"}})
         return WorkerOutcome(0, "exited", 0.1)
@@ -75,11 +75,11 @@ def test_explicit_vl16_complete_pipeline_configuration(repo, monkeypatch):
     monkeypatch.setattr(worker, "model_directories", lambda root: {"layout": "local-layout", "recognition": "local-vl"})
     monkeypatch.setattr(worker.importlib.metadata, "version", lambda name: worker.EXPECTED[name])
     monkeypatch.setattr(sys, "addaudithook", lambda hook: None)
-    monkeypatch.setattr(sys, "argv", ["worker", str(repo / "invoice.png"), str(repo / "result.json"), "cpu"])
+    monkeypatch.setattr(sys, "argv", ["worker", str(repo / "invoice.png"), str(repo / "result.json"), "gpu:0"])
     assert worker.main() == 0
     assert calls["pipeline_version"] == "v1.6"
     assert calls["use_layout_detection"] is True
-    assert calls["device"] == "cpu"
+    assert calls["device"] == "gpu:0"
     assert calls["vl_rec_model_dir"] == "local-vl"
 
 

@@ -2,10 +2,11 @@
 
 ## Current outcome
 
-The local prototype has completed one real PNG CPU OCR run (2026-09-16).
-The user confirmed its extracted total. This is **not** complete M1 acceptance:
-all-field accuracy, synthetic ground-truth OCR acceptance, GPU execution, Docker
-runtime and live RAGFlow ingestion remain unverified or previously blocked.
+The local prototype now uses PaddlePaddle GPU inference (`paddlepaddle-gpu`
+3.2.1, CUDA 12.9 package index) for PaddleOCR-VL. An earlier real PNG OCR run
+confirmed its extracted total, but this is **not** complete M1 acceptance:
+all-field accuracy, Docker runtime and live RAGFlow ingestion remain unverified
+or previously blocked.
 
 The current branch updates local extraction to the supplied 14-field TIRBIC
 contract (`tirbic-14-v1`). It is a breaking schema change, not a new OCR model.
@@ -49,8 +50,9 @@ no Git mutations and stayed on the user's `feat/align-receipt-schema` branch.
 - Offline RAGFlow preparation; local-only submission; separate HTTP/business-code
   validation; uncertain upload receipts prevent automatic duplicate retries.
 - Synthetic PNG, independent expected JSON and explicitly fake unit fixture.
-- Full transitive dependency locks with package hashes, model lock, official
-  RAGFlow source hashes, CPU Docker recipes, README and persistent AGENTS rules.
+- Application dependency locks with package hashes, pinned GPU OCR requirements,
+  model lock, official RAGFlow source hashes, GPU Docker recipes, README and
+  persistent AGENTS rules.
 
 ## Historical baseline commands and observed results
 
@@ -95,7 +97,8 @@ under ignored `.runtime` directories and explicitly identify their parser as FAK
 ## Compatibility and source decisions
 
 - Preserved the approved PaddleOCR 3.6.0 / PaddleX 3.6.0 / PaddlePaddle 3.2.1
-  combination. No alternate OCR model or proprietary service was introduced.
+  combination, using the GPU distribution of PaddlePaddle. No alternate OCR
+  model or proprietary service was introduced.
 - Official BOS VL-1.6 archive returned 404. The recognition weights instead use
   official `PaddlePaddle/PaddleOCR-VL-1.6` at revision
   `c5630abae1d940eafe0697512a0325494b02ab42`. The model identity did not change.
@@ -109,10 +112,9 @@ under ignored `.runtime` directories and explicitly identify their parser as FAK
 
 ## Remaining blockers and next acceptance step
 
-1. Diagnose VL-1.6 CPU pipeline initialization on a usable supported runtime.
-   Imports and model checksums alone are not inference success. The supplied
-   Linux/Python 3.11 container is the next reference environment; building/running
-   it requires a working Docker daemon. GPU setup is not assumed or installed.
+1. Validate VL-1.6 GPU inference on each target host. Imports, CUDA discovery
+   and model checksums alone are not complete acceptance. Docker validation still
+   requires a working Docker daemon and NVIDIA container runtime.
 2. Run the synthetic invoice successfully and compare every extracted field with
    the independent expected JSON. Preserve real raw and Markdown artifacts.
 3. Start the self-hosted RAGFlow development stack, configure a local embedding
@@ -165,7 +167,7 @@ deployment/ragflow/sources.json
 pyproject.toml
 requirements/app.lock
 requirements/models.lock.json
-requirements/ocr-cpu.lock
+requirements/ocr-gpu-cu129.txt
 samples/tax_invoices/expected.json
 samples/tax_invoices/sample_invoice.png
 scripts/check_environment.py
