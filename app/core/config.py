@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @dataclass(frozen=True)
 class Settings:
     root: Path = ROOT
-    device: str = "cpu"
+    device: str = "gpu:0"
     ragflow_base_url: str = ""
     ragflow_api_key: str = ""
     ragflow_dataset_id: str = ""
@@ -32,9 +32,9 @@ class Settings:
                 raise ValueError
         except ValueError:
             raise InputError("Invalid OCR timeout configuration") from None
-        device = os.environ.get("PADDLEOCR_DEVICE") or "cpu"
-        if device != "cpu" and not device.startswith("gpu:"):
-            raise InputError("Device must be cpu or gpu:<index>")
+        device = os.environ.get("PADDLEOCR_DEVICE") or "gpu:0"
+        if not device.startswith("gpu:"):
+            raise InputError("Device must be gpu:<index>")
         return cls(
             device=device,
             ragflow_base_url=os.environ.get("RAGFLOW_BASE_URL", ""),

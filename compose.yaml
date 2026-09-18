@@ -5,6 +5,7 @@ services:
     volumes:
       - .:/workspace
     network_mode: none
+    gpus: all
     environment:
-      PADDLEOCR_DEVICE: cpu
+      PADDLEOCR_DEVICE: gpu:0
     command: ["python", "-m", "app.cli", "--help"]
