@@ -23,17 +23,18 @@ def test_missing_models_fail_before_starting_worker(repo, monkeypatch):
         PaddleParser(Settings(root=repo)).parse(repo / "invoice.png")
 
 
-def test_worker_contract_and_output_suppression(repo, monkeypatch):
+@pytest.mark.parametrize("device", ["cpu", "gpu:0"])
+def test_worker_contract_and_output_suppression(repo, monkeypatch, device):
     (repo / ".models").mkdir()
     write_json(repo / ".models/manifest.json", {})
     def run(args, root, timeout):
         assert args[1:3] == ["-m", "app.paddleocr.worker"]
-        assert args[-1] == "gpu:0"
+        assert args[-1] == device
         write_json(__import__("pathlib").Path(args[4]), {"status": "completed", "raw_pages": [{"raw": 1}],
             "markdown_pages": ["text"], "versions": {"pipeline": "PaddleOCR-VL-1.6"}})
         return WorkerOutcome(0, "exited", 0.1)
     monkeypatch.setattr("app.paddleocr.adapter.execute_worker", run)
-    result = PaddleParser(Settings(root=repo)).parse(repo / "invoice.png")
+    result = PaddleParser(Settings(root=repo, device=device)).parse(repo / "invoice.png")
     assert result.raw_pages == [{"raw": 1}]
     assert result.versions["pipeline"] == "PaddleOCR-VL-1.6"
 
@@ -60,7 +61,8 @@ def test_ocr_network_hook():
     deny_network("open", ())
 
 
-def test_explicit_vl16_complete_pipeline_configuration(repo, monkeypatch):
+@pytest.mark.parametrize("device", ["cpu", "gpu:0"])
+def test_explicit_vl16_complete_pipeline_configuration(repo, monkeypatch, device):
     import sys
     from app.paddleocr import worker
     calls = {}
@@ -73,13 +75,14 @@ def test_explicit_vl16_complete_pipeline_configuration(repo, monkeypatch):
     monkeypatch.setattr(worker, "ROOT", repo)
     monkeypatch.setattr(worker, "local_runtime", lambda root: None)
     monkeypatch.setattr(worker, "model_directories", lambda root: {"layout": "local-layout", "recognition": "local-vl"})
-    monkeypatch.setattr(worker.importlib.metadata, "version", lambda name: worker.EXPECTED[name])
+    monkeypatch.setattr(worker, "check_packages", lambda device: {"paddleocr": "3.6.0"})
+    monkeypatch.setattr(worker, "activate_device", lambda device: device)
     monkeypatch.setattr(sys, "addaudithook", lambda hook: None)
-    monkeypatch.setattr(sys, "argv", ["worker", str(repo / "invoice.png"), str(repo / "result.json"), "gpu:0"])
+    monkeypatch.setattr(sys, "argv", ["worker", str(repo / "invoice.png"), str(repo / "result.json"), device])
     assert worker.main() == 0
     assert calls["pipeline_version"] == "v1.6"
     assert calls["use_layout_detection"] is True
-    assert calls["device"] == "gpu:0"
+    assert calls["device"] == device
     assert calls["vl_rec_model_dir"] == "local-vl"
 
 

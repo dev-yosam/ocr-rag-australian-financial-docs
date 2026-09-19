@@ -1,11 +1,31 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      target: gpu
     working_dir: /workspace
     volumes:
       - .:/workspace
     network_mode: none
-    gpus: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     environment:
       PADDLEOCR_DEVICE: gpu:0
+    command: ["python", "-m", "app.cli", "--help"]
+  app-cpu:
+    profiles: [cpu]
+    build:
+      context: .
+      target: cpu
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    network_mode: none
+    environment:
+      PADDLEOCR_DEVICE: cpu
     command: ["python", "-m", "app.cli", "--help"]

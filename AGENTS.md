@@ -49,3 +49,7 @@ Use tirbic-15-v2; nature_of_expense is removed. The user explicitly authorized
 creation of feat/update-labelling-standards for this update; commit/push remain
 user-controlled. Invoice number takes priority over receipt number for tax
 invoices by explicit user clarification. Preserve merged GPU configuration.
+
+User-approved runtime extension: create feat/cpu-gpu-dual-mode and support explicit
+CPU or GPU selection. Default local settings to CPU; preserve GPU dependency recipe
+and GPU Compose service. Never silently fall back. Commit/push remain user-controlled.

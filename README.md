@@ -42,10 +42,10 @@ at a time, not concurrent production requests.
 
 ## Prerequisites and versions
 
-- Reference runtime: NVIDIA GPU / Python 3.11, preferably WSL2 + Docker Desktop.
+- Reference runtime: Linux / Python 3.11, with explicit CPU or NVIDIA GPU mode.
 - Windows Python 3.11 with an NVIDIA GPU was used for dependency/import checks,
   unit tests and one synthetic sample run.
-- `paddleocr[doc-parser]==3.6.0`, `paddlex==3.6.0`, `paddlepaddle-gpu==3.2.1`.
+- `paddleocr[doc-parser]==3.6.0`, `paddlex==3.6.0`; CPU `paddlepaddle==3.2.1` or GPU `paddlepaddle-gpu==3.2.1`.
 - `PaddleOCRVL(pipeline_version="v1.6")`, with local PP-DocLayoutV3 and
   PaddleOCR-VL-1.6-0.9B model directories. No PP-OCR/PP-Structure substitution.
 - FastAPI 0.141.1, Pydantic 2.13.5, pytest 9.1.1. Application/test versions and
@@ -55,8 +55,8 @@ at a time, not concurrent production requests.
   install RAGFlow into the application's Python environment.
 - RAGFlow upstream requires at least 4 CPU cores, 16 GB RAM, 50 GB disk,
   Docker 24+, Compose 2.26.1+. Allow extra memory/storage for OCR and model archives.
-- OCR inference is GPU-only in this branch. `PADDLEOCR_DEVICE` defaults to
-  `gpu:0`. CPU PaddlePaddle must not be installed alongside `paddlepaddle-gpu`.
+- Local inference defaults to `cpu`; explicitly select `gpu:0` on a GPU host.
+  Never install CPU PaddlePaddle alongside `paddlepaddle-gpu`. No automatic fallback.
 
 The Python dependency lock was resolved for Python 3.11+ across platforms using
 uv 0.8.22. The PaddlePaddle GPU package is installed from PaddlePaddle's CUDA
@@ -70,7 +70,7 @@ container supply chain.
 Run all commands from this project directory. Installation and model preparation
 are explicit network-enabled steps. Never use an unpinned upgrade command.
 
-PowerShell:
+PowerShell (CPU):
 
 ```powershell
 python -m venv .venv
@@ -78,22 +78,24 @@ New-Item -ItemType Directory -Force .runtime/tmp, .cache/pip | Out-Null
 $env:TEMP="$PWD/.runtime/tmp"
 $env:TMP=$env:TEMP
 .\.venv\Scripts\Activate.ps1
+$env:PADDLEOCR_DEVICE="cpu"
 python -m pip --isolated install --index-url https://pypi.org/simple --cache-dir .cache/pip --require-hashes -r requirements/app.lock
-python -m pip install --cache-dir .cache/pip -r requirements/ocr-gpu-cu129.txt
+python -m pip install --cache-dir .cache/pip --require-hashes -r requirements/ocr-cpu.lock
 python -m pip --isolated check
 python scripts/check_environment.py
 python scripts/prepare_models.py
 ```
 
-WSL/Linux:
+WSL/Linux (CPU):
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
+export PADDLEOCR_DEVICE=cpu
 mkdir -p .runtime/tmp .cache/pip
 export TMPDIR="$PWD/.runtime/tmp"
 python -m pip --isolated install --cache-dir .cache/pip --require-hashes -r requirements/app.lock
-python -m pip install --cache-dir .cache/pip -r requirements/ocr-gpu-cu129.txt
+python -m pip install --cache-dir .cache/pip --require-hashes -r requirements/ocr-cpu.lock
 python -m pip --isolated check
 python scripts/check_environment.py
 python scripts/prepare_models.py
@@ -102,6 +104,69 @@ python scripts/prepare_models.py
 The separate application lock allows unit tests without the heavy OCR libraries.
 Running from the root does not require an editable install; `python -m app.cli`
 works directly. Avoid reusing a Windows venv from WSL or vice versa.
+
+## CPU / GPU switching
+
+Both modes use the same PP-DocLayoutV3 + PaddleOCR-VL-1.6 models and 15-field
+extractor. Changing devices does not fix extraction rules. Models in `.models/`
+can be reused without another download. CPU installation above restores the
+hash-locked set from commit `a06d54d`. The GPU CUDA 12.9 recipe is unchanged;
+its transitive dependencies are not fully hash-locked.
+
+On a compatible NVIDIA GPU host, install in a **separate fresh environment**:
+
+```powershell
+python -m venv .venv-gpu
+New-Item -ItemType Directory -Force .runtime/tmp, .cache/pip | Out-Null
+$env:TEMP="$PWD/.runtime/tmp"
+$env:TMP=$env:TEMP
+.\.venv-gpu\Scripts\Activate.ps1
+python -m pip install --cache-dir .cache/pip --require-hashes -r requirements/app.lock
+python -m pip install --cache-dir .cache/pip -r requirements/ocr-gpu-cu129.txt
+python -m pip check
+$env:PADDLEOCR_DEVICE="gpu:0"
+python scripts/check_environment.py
+python -m app.cli process samples/tax_invoices/sample_invoice.png --run-id gpu_sample_01
+```
+
+On Linux/Cetus use `python3.11 -m venv .venv-gpu`,
+`source .venv-gpu/bin/activate`, the same pip commands, and
+`export PADDLEOCR_DEVICE=gpu:0`. Run inside an allocated GPU job: index 0 is the
+first GPU visible to the job. Verify driver and GPU architecture compatibility on
+that host. Cluster deployment and real GPU inference validation remain outstanding.
+Intel graphics cannot run this CUDA mode.
+
+Switch back to the laptop's CPU environment:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+$env:PADDLEOCR_DEVICE="cpu"
+python scripts/check_environment.py
+python -m app.cli process samples/tax_invoices/sample_invoice.png --run-id cpu_sample_01
+```
+
+Use a new run ID each time. CLI and FastAPI share device configuration; restart
+the API after changing it. `.env` is not automatically loaded. Selecting a device
+does not install packages or provide GPU hardware.
+
+Preflight checks packages, GPU visibility when applicable, and a small tensor
+computation on the selected device before OCR model loading. Errors stop the run;
+there is no silent fallback. Successful OCR manifests include `versions.device`.
+Fake-provider tests are not evidence of actual GPU inference or speed.
+
+Docker retains GPU service `app` and adds CPU service `app-cpu`, which has no GPU
+reservation. Processing-time networking is disabled for both:
+
+```powershell
+docker compose --profile cpu build app-cpu
+docker compose --profile cpu run --rm app-cpu python scripts/check_environment.py
+docker compose --profile cpu run --rm app-cpu python -m app.cli process samples/tax_invoices/sample_invoice.png --run-id docker_cpu_01
+docker compose build app
+docker compose run --rm app python scripts/check_environment.py
+```
+
+GPU containers require NVIDIA Container Toolkit and a compatible host driver.
+Container builds and inference must be verified where Docker is available.
 
 ## Model preparation and sample processing
 
@@ -118,7 +183,7 @@ acceptance. The same current OCR timeout/runtime limitations still apply.
 From an activated project venv, after placing a JPEG/PNG in that directory:
 
 ```powershell
-$env:PADDLEOCR_DEVICE="gpu:0"
+$env:PADDLEOCR_DEVICE="cpu"
 $env:PADDLEOCR_TIMEOUT_SECONDS="300"
 python -m app.cli process "private_inputs/invoice_001.jpg" --run-id private-invoice-001
 ```
@@ -248,7 +313,7 @@ Set variables in your shell. Never print a populated environment/configuration.
 
 | Variable | Default / purpose |
 |---|---|
-| PADDLEOCR_DEVICE | gpu:0; explicit NVIDIA GPU device in `gpu:<index>` form |
+| PADDLEOCR_DEVICE | cpu; alternatively `gpu:<index>` for a visible NVIDIA CUDA GPU |
 | PADDLEOCR_TIMEOUT_SECONDS | 1800; allowed 1–3600 seconds |
 | RAGFLOW_BASE_URL | Empty; self-hosted service URL required for submit |
 | RAGFLOW_API_KEY | Empty; local RAGFlow API credential required for submit |

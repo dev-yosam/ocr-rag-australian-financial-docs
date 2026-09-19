@@ -21,6 +21,7 @@ def test_real_vl16_invoice():
     assert simplejson.loads(json_text(result["invoice"]), use_decimal=True) == expected
     manifest = read_json(ROOT / "outputs" / result["run_id"] / "manifest.json")
     assert manifest["versions"]["pipeline"] == "PaddleOCR-VL-1.6"
+    assert manifest["versions"]["device"] == Settings.from_env().device
 
 
 @pytest.mark.integration

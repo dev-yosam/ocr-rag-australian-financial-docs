@@ -1,5 +1,4 @@
 """Private subprocess entrypoint: all stdout/stderr discarded by the adapter."""
-import importlib.metadata
 import json
 from pathlib import Path
 import sys
@@ -7,7 +6,7 @@ import sys
 from app.core.config import ROOT, local_runtime
 from app.core.files import contained, read_json, sha256, write_json
 
-EXPECTED = {"paddleocr": "3.6.0", "paddlex": "3.6.0", "paddlepaddle-gpu": "3.2.1"}
+from app.paddleocr.runtime import check_packages, activate_device
 
 
 def deny_network(event: str, args: tuple) -> None:
@@ -65,9 +64,10 @@ def main() -> int:
     write_json(target, progress)
     local_runtime(ROOT)
     sys.addaudithook(deny_network)
-    versions = {name: importlib.metadata.version(name) for name in EXPECTED}
-    if versions != EXPECTED:
-        raise ValueError("OCR dependency version mismatch")
+    progress["stage"] = "device_preflight"
+    write_json(target, progress)
+    versions = check_packages(device)
+    versions["device"] = activate_device(device)
     progress.update(stage="model_checksums", versions=versions)
     write_json(target, progress)
     directories = model_directories(ROOT)

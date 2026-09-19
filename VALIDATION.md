@@ -254,3 +254,33 @@ tests/unit/test_pipeline.py
   install packages, contact Azure/RAGFlow, or process real financial documents.
 - No 138-document evaluation or Label Studio migration was performed. New
   classifications still require explicit supported labels, not inferred semantics.
+
+
+## CPU + GPU selection update (2026-09-19)
+
+Branch: `feat/cpu-gpu-dual-mode`, based on `935354b`. No commit or push performed.
+Local default is CPU; GPU remains explicit. Both use the same full VL-1.6 pipeline.
+
+- `python -m pytest -m "not integration" -q`: 241 passed, 1 skipped (Windows
+  symlink permission), 2 deselected; 1 existing Starlette/AnyIO deprecation warning.
+- CPU `python scripts/check_environment.py`: actual Paddle 3.2.1 tensor computation
+  and PaddleOCR 3.6.0 imports passed on Windows Python 3.13.7. No package installation
+  or model download was needed.
+- `python -m pip check`: no broken requirements.
+- GPU preflight in this CPU environment: correctly exits 1 before model loading;
+  no fallback. GPU contract tests use fakes, not actual GPU hardware.
+- CPU hash lock restored from `a06d54d`; overlapping versions agree with app.lock.
+  Fresh Linux installation was not tested. GPU recipe retains its existing CUDA
+  12.9 index and direct version pins; transitive GPU dependencies are not locked.
+- Compose configuration validated using repository-local empty Docker config.
+  Updated GPU reservation syntax for compatibility with this Compose CLI.
+- Docker daemon unavailable (docker_engine pipe missing); no image build, container
+  inference, or actual GPU/Cetus deployment verified. Host settings unchanged.
+- RAGFlow was not started or submitted to. No private documents processed.
+
+- Real CPU OCR: `PADDLEOCR_DEVICE=cpu`, `PADDLEOCR_TIMEOUT_SECONDS=120`,
+  `RUN_PADDLEOCR_INTEGRATION=1`, `python -m pytest -m paddleocr_integration -q`:
+  1 failed after the explicit 120-second budget. This does not establish full OCR
+  acceptance or accuracy. Inspect the ignored local manifest at
+  `outputs/integration-9715a8ad27ec46b493c5d7faa65081ae/manifest.json`.
+  The normal default timeout remains 1800 seconds. No success output was fabricated.
