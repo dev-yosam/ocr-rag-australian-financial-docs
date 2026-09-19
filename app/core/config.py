@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import os
+import re
 from pathlib import Path
 
 from app.core.errors import InputError
@@ -7,15 +8,23 @@ from app.core.errors import InputError
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def validate_device(device: str) -> None:
+    if not isinstance(device, str) or re.fullmatch(r"cpu|gpu:(0|[1-9][0-9]*)", device) is None:
+        raise InputError("Device must be cpu or gpu:<non-negative index>")
+
+
 @dataclass(frozen=True)
 class Settings:
     root: Path = ROOT
-    device: str = "gpu:0"
+    device: str = "cpu"
     ragflow_base_url: str = ""
     ragflow_api_key: str = ""
     ragflow_dataset_id: str = ""
     ragflow_timeout: float = 30.0
     ocr_timeout: float = 1800.0
+
+    def __post_init__(self) -> None:
+        validate_device(self.device)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -32,9 +41,7 @@ class Settings:
                 raise ValueError
         except ValueError:
             raise InputError("Invalid OCR timeout configuration") from None
-        device = os.environ.get("PADDLEOCR_DEVICE") or "gpu:0"
-        if not device.startswith("gpu:"):
-            raise InputError("Device must be gpu:<index>")
+        device = os.environ.get("PADDLEOCR_DEVICE") or "cpu"
         return cls(
             device=device,
             ragflow_base_url=os.environ.get("RAGFLOW_BASE_URL", ""),
