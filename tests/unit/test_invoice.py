@@ -13,7 +13,7 @@ from app.schemas.invoice import TaxInvoice
 
 def test_missing_fields_are_serialized_null():
     value = json.loads(json_text(TaxInvoice().model_dump()))
-    assert len(value) == 14
+    assert len(value) == 15
     assert value["total_cost"] is None
     assert value["date_of_issue"] is None
     assert value["document_type"] is None

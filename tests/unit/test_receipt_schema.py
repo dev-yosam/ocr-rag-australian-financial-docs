@@ -13,7 +13,7 @@ def extract(text):
     return RuleInvoiceExtractor().extract(text)
 
 
-def test_all_fourteen_fields_from_explicit_evidence():
+def test_all_fifteen_fields_from_explicit_evidence():
     result = extract("""# RECEIPT
 Supplier: FAKE Supplier
 Seller ABN: 00 000 000 000
@@ -21,7 +21,8 @@ Receipt No.: 0007
 Issue Date: 2026-09-16
 Purchase Date: 2026-09-15
 Payment Due Date: 2026-09-30
-Expense Type: goods
+Supply Type: goods
+Expense Category: food
 Payment Status: Paid in full
 Buyer: FAKE Buyer
 Taxable Sale Extent: 50%
@@ -32,7 +33,7 @@ GST: AUD 45.45
         "document_type": "receipt", "document_number": "0007",
         "total_cost": Decimal("1000.00"), "seller_business_name": "FAKE Supplier",
         "date_of_expense": date(2026, 9, 15), "date_of_issue": date(2026, 9, 16),
-        "nature_of_expense": "goods", "paid": True,
+        "supply_type": "goods", "expense_category": "food", "paid": True,
         "is_total_cost_equal_to_or_higher_than_1000": True,
         "seller_abn": "00000000000", "gst": Decimal("45.45"),
         "payment_due_date": date(2026, 9, 30), "buyer_identity": "FAKE Buyer",
@@ -95,10 +96,10 @@ def test_receipt_does_not_automatically_mean_paid():
 def test_classification_is_explicit_and_conflicts_are_null():
     assert extract("# TAX INVOICE").document_type == "tax_invoice"
     assert extract("# CUSTOMER COPY").document_type == "customer_copy"
-    assert extract("# RECEIPT\n# INVOICE").document_type is None
+    assert extract("# RECEIPT\n# INVOICE").document_type == "invoice"
     assert extract("Please keep this receipt for your records").document_type is None
-    assert extract("Expense type: goods and service").nature_of_expense is None
-    assert extract("Supplier: FAKE Plumbing Service").nature_of_expense is None
+    assert extract("Expense type: goods and service").supply_type is None
+    assert extract("Supplier: FAKE Plumbing Service").supply_type is None
 
 
 def test_supplier_and_customer_scopes_in_tables():
@@ -109,7 +110,7 @@ def test_supplier_and_customer_scopes_in_tables():
 
 
 def test_taxable_percentage_requires_explicit_percent():
-    assert extract("Total price includes GST").taxable_sale_extent is None
+    assert extract("Total price includes GST").taxable_sale_extent == Decimal("100")
     assert extract("Taxable sale extent: 0.5").taxable_sale_extent is None
     assert extract("Taxable sale extent: 101%").taxable_sale_extent is None
     result = extract("Taxable sale extent: 12.50%")
@@ -137,11 +138,12 @@ def test_supported_document_titles(title, kind):
     assert extract("# " + title).document_type == kind
 
 
-def test_empty_document_has_fourteen_null_fields():
+def test_empty_document_has_fifteen_null_fields():
     result = extract("")
     payload = json.loads(json_text(result.model_dump()))
-    assert len(payload) == 14
-    assert all(v is None for v in payload.values())
+    assert len(payload) == 15
+    assert payload["buyer_identity"] == ""
+    assert all(v is None for k, v in payload.items() if k != "buyer_identity")
     assert TaxInvoice.model_validate(payload) == result
 
 
@@ -169,7 +171,7 @@ def test_joined_header_keeps_buyer_scope_and_detects_conflicts():
     result = extract("TAX INVOICE - ABN 00 000 000 000\nSupplier ABN: 11 111 111 111")
     assert result.seller_abn is None
     assert extract("TAX INVOICE - Buyer ABN 11 111 111 111").seller_abn is None
-    assert extract("TAX INVOICE - ABN 00 000 000 000\n# RECEIPT").document_type is None
+    assert extract("TAX INVOICE - ABN 00 000 000 000\n# RECEIPT").document_type == "tax_invoice"
 
 
 def test_joined_header_inside_html_cell():

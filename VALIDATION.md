@@ -8,14 +8,16 @@ confirmed its extracted total, but this is **not** complete M1 acceptance:
 all-field accuracy, Docker runtime and live RAGFlow ingestion remain unverified
 or previously blocked.
 
-The current branch updates local extraction to the supplied 14-field TIRBIC
-contract (`tirbic-14-v1`). It is a breaking schema change, not a new OCR model.
-Latest unit result: **124 passed, 1 skipped, 2 deselected**, one upstream warning.
+The current branch updates local extraction to the supplied 15-field TIRBIC
+contract (`tirbic-15-v2`) and adds offline field evaluation. It is a breaking
+schema change, not a new OCR model.
+Latest unit result: **209 passed, 1 skipped, 2 deselected**, one upstream warning.
 See `docs/TIRBIC_SCHEMA.md` for field meanings and provisional decisions.
 
 The earlier scaffold and runtime records below are historical. The user has
-since initialized Git and pushed the repository. This implementation turn made
-no Git mutations and stayed on the user's `feat/align-receipt-schema` branch.
+since initialized Git and pushed the repository. The user explicitly authorized creation of `feat/update-labelling-standards`
+from clean main at 53fef87 for this update. No stage, commit, push, merge or reset
+was performed. Earlier branch-specific records below remain historical.
 
 ## Schema update verification (2026-09-16)
 
@@ -221,3 +223,34 @@ tests/unit/test_pipeline.py
   diagnostics.json and review.json. These are extraction-only review artifacts,
   not a fresh OCR run, shared test fixture or permitted RAG submission.
 - No model, runtime, GPU, dependency or Git changes were made in this follow-up.
+
+
+## Labelling standards update (2026-09-19)
+
+- Read the complete one-page labelling-standards.pdf via text extraction and
+  rendered visual review; also used the attached client-update screenshot.
+- Source PDF SHA-256: `6e93f73a6a0afaa5c2f43c1f7a336aa77773ed2fce8b99177781b0bfb785ca0f`.
+- Removed nature_of_expense; added supply_type (4 values) and expense_category
+  (10 values). Contract is now tirbic-15-v2 with exactly 15 output fields.
+- Added document title precedence and document-type-aware number selection,
+  including reference fallback and exclusion of order/transaction numbers.
+  User confirmed invoice-number priority for tax invoices; not an open question.
+- Missing buyer_identity is an empty string; card-like candidates are rejected.
+- Exact standalone includes-GST example maps to 100 per the supplied annotation
+  convention; contradictory explicit percentages stay null. This is not a
+  general claim about taxation or all documents mentioning GST.
+- Added offline evaluation with field-specific normalization, Azure field-object
+  handling and the missing-source/missing-value rule. Zero/false are real values.
+  Buyer evaluation is gated by the reference >=1000 flag, not model prediction.
+- Command: `.venv/Scripts/python.exe -m pytest -m "not integration" -q`.
+  Result: 209 passed, 1 skipped (host symlink permissions), 2 deselected,
+  1 existing Starlette/AnyIO deprecation warning.
+- Extracted synthetic_fake.md locally into 15-field JSON, then ran
+  scripts/evaluate_fields.py against the independently maintained synthetic
+  expected.json: 15 correct / 15 evaluated. Report is in ignored
+  outputs/labelling-synthetic-20260919-131242/evaluation.json.
+  This validates rules/evaluation plumbing, not real OCR accuracy.
+- Preserved merged GPU configuration/dependencies and did not run inference,
+  install packages, contact Azure/RAGFlow, or process real financial documents.
+- No 138-document evaluation or Label Studio migration was performed. New
+  classifications still require explicit supported labels, not inferred semantics.

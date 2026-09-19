@@ -1,76 +1,72 @@
-# Provisional TIRBIC extraction contract
+# TIRBIC extraction contract
 
-Version: `tirbic-14-v1`. Based on the 14 fields provided by the project team.
-This document describes our local implementation, not Azure feature parity.
-The Azure analyzer configuration and its completion/embedding models are not
-loaded or called. Client field definitions remain subject to review.
+Version: `tirbic-15-v2`. Based on the user-supplied `labelling-standards.pdf`
+(one page) and the accompanying client-update message. This updates the former
+14-field contract. It is a local implementation, not Azure feature parity.
 
-All 14 keys are emitted. Unknown, invalid or conflicting evidence is null.
-No source confidence is fabricated. Examples and automated tests are synthetic.
+## Fields
 
-| Field | Type | Current evidence/rule |
+All 15 keys are emitted. Unknown/conflicting values remain null, except a missing
+buyer_identity is an empty string as required by the standard. No confidence or
+source coordinates are fabricated.
+
+| Field | Type | Current implementation |
 |---|---|---|
-| document_type | enum or null | Exact standalone title, standalone title joined to a labelled ABN, or Document Type label: tax_invoice, bill, receipt, customer_copy, invoice. Conflicting titles return null; no semantic inference. |
-| document_number | string or null | Explicit document/invoice/receipt/bill number; leading zeros retained. |
-| total_cost | Decimal or null | Explicit total/grand total/inclusive total; never subtotal, amount due or computed sum. Generic total is provisionally accepted, without proving GST treatment. |
-| seller_business_name | string or null | Explicit supplier/seller name. Unlabelled logos and company headers are not inferred. |
-| date_of_expense | date or null | Explicit purchase/transaction/payment date. Different candidate dates return null. |
-| date_of_issue | date or null | Explicit issue/invoice/receipt date. Bare Date is not assigned. |
-| nature_of_expense | goods/service or null | Explicit Nature of Expense or Expense Type label only. No classification of line items yet. |
-| paid | boolean or null | Explicit paid/unpaid status; no inference from document type, zero balance or partial payment. |
-| is_total_cost_equal_to_or_higher_than_1000 | boolean or null | Derived total_cost >= 1000; null without a safe total. |
-| seller_abn | string or null | Labelled seller ABN, or ABN outside buyer section; 11 digits, no checksum or external lookup. |
-| gst | Decimal or null | Explicit GST value, never inferred from total. |
-| payment_due_date | date or null | Explicit due date; separate from issue and expense dates. |
-| buyer_identity | string or null | Explicit buyer/customer identity or ABN. Multiple distinct values currently return null, even when name and ABN may refer to the same buyer. |
-| taxable_sale_extent | Decimal 0..100 or null | Explicit labelled percentage only, no inference from a GST amount or includes-GST wording. |
+| document_type | enum or null | Explicit title/type label. tax_invoice, bill, invoice outrank receipt and customer_copy. Multiple different titles within one tier remain unresolved. |
+| document_number | string or null | Type-matching number; tax invoices prefer invoice number, then receipt number (user-confirmed). Generic document number and then reference number are fallback. Never transaction/order number. Conflicting candidates in a selected tier return null. |
+| total_cost | Decimal or null | Explicit total/grand total/inclusive total; no computed sums or amount-due substitution. |
+| seller_business_name | string or null | Explicit supplier/seller labels; unlabelled company names are not inferred. |
+| date_of_expense | date or null | Explicit purchase/transaction/payment date; conflicting dates remain unresolved. |
+| date_of_issue | date or null | Explicit invoice/issue/receipt date, not a bare Date. |
+| supply_type | enum or null | goods, services, goods_and_services, penalties. Explicit Supply Type label only. |
+| expense_category | enum or null | housing, utilities, food, transportation, healthcare, debt_repayment, savings_and_investments, entertainment, personal_care, miscellaneous. Explicit Expense Category label only. |
+| paid | boolean or null | Explicit paid/unpaid status. Partial/unknown states remain null. |
+| is_total_cost_equal_to_or_higher_than_1000 | boolean or null | total_cost >=1000, or null without a safe total. |
+| seller_abn | string or null | Explicit ABN, eleven digits; buyer context excluded. No external verification. |
+| gst | Decimal or null | Explicit GST, never calculated from total. |
+| payment_due_date | date or null | Explicit payment due date, separate from other dates. |
+| buyer_identity | string | Explicit buyer name/business/ABN; absent, conflicting or card-like values produce an empty string. Payment-card identifiers are excluded conservatively. |
+| taxable_sale_extent | Decimal 0..100 or null | Labelled percentage, or the exact standalone example Total price includes GST -> 100. Conflicting evidence returns null. |
 
-## Decisions awaiting client confirmation
+## Annotation conventions and limits
 
-- Threshold: field name specifies >=1000, while the supplied description says
-  higher than 1000. Implementation provisionally follows the field name.
-- Expense date: no priority is chosen between different purchase/payment dates.
-- Paid: partial, unknown and contradictory statuses return null, not false.
-- Nature: mixed goods/services return null; line-item semantic classification is
-  not implemented. A future strategy may be needed for the supplied infer rule.
-- Taxable extent: the local contract is one document-level percentage. Per-sale
-  percentages require an agreed aggregation or a line-item schema. The supplied
-  includes-GST example is not treated as sufficient evidence of 100% taxable.
-- Total cost: generic Total is accepted as a candidate but tax inclusion cannot
-  always be established from that label. Mixed tax treatment needs review.
-- No currency output key was supplied. Processing remains AUD-only and rejects
-  explicit foreign currencies. A multi-currency contract needs a separate change.
+- The includes-GST mapping is the supplied dataset convention, not an assertion
+  that every document mentioning GST is legally 100% taxable. No partial-item
+  aggregation is implemented; a document-level number is retained.
+- Buyer identity is evaluated only when the reference >=1000 flag is true.
+  Extraction can retain identity below the threshold; evaluation skips it.
+- Names plus ABNs that differ as strings are not yet merged into one identity.
+- Supply/category outputs are validated enums but there is no semantic line-item
+  classification model. Unknown does not default to miscellaneous.
+- Dates are ISO in output. Ambiguous numerical dates remain null. Date priority
+  between different purchase/payment dates is still unspecified.
+- Document-number selection for an absent type uses an unambiguous explicit
+  document/invoice/receipt/bill number, then reference. Conflicts return null.
+- Two distinct titles within the same precedence tier remain null: the PDF
+  defines inter-tier priority but not an ordering within each tier.
+- Processing is still AUD-only; currency is not an output key. Decimal amounts
+  are JSON numbers, with no binary-float conversion in extraction.
 
-## Breaking migration from the original prototype
+## Migration
 
-| Original key | New key |
-|---|---|
-| business_name | seller_business_name |
-| abn | seller_abn |
-| invoice_number | document_number |
-| invoice_date | date_of_issue |
-| total | total_cost |
-| gst | gst |
-| document_type | document_type, now nullable and supports five classes |
-| subtotal / currency | Removed from output |
+`nature_of_expense` is removed, with no silent alias. New fields are supply_type
+and expense_category. `services` is plural; do not reuse legacy `service` values.
+Existing annotations must be independently reviewed for the two new fields;
+an old goods/service value does not determine the expense category.
+Missing buyer_identity changes from null to an empty string. The manifest version
+changes from tirbic-14-v1 to tirbic-15-v2. Existing run artifacts are not rewritten.
 
-Legacy input keys are rejected by schema validation, not silently aliased.
-The Python class name TaxInvoice and API path /v1/invoices/process are retained
-for now; API/CLI invoice payloads have the new 14 keys. Consumers must migrate.
-Old artifacts are not rewritten. New processing manifests include schema_version.
+Earlier key changes remain: business_name -> seller_business_name, abn ->
+seller_abn, invoice_number -> document_number, invoice_date -> date_of_issue,
+total -> total_cost; subtotal/currency are not output keys.
+The Python TaxInvoice class name and /v1/invoices/process endpoint remain.
 
-## Verification
+## Layout support and verification
 
-Run `python -m pytest -m "not integration"`. Tests cover independent expected
-fields, tables, neighbouring lines, seller/buyer separation, three date meanings,
-ambiguous dates, strict booleans, exact Decimal JSON numbers and the 1000 boundary.
-Model weights and OCR dependencies are unchanged. Passing extraction tests does
-not demonstrate complete accuracy on real receipts or new GPU compatibility.
+Prose, adjacent label/value lines, simple HTML/Markdown tables, and standalone
+joined title/ABN headings are supported. Complex merged rows and arbitrary
+unlabelled layouts still require further work. Tests are synthetic.
 
-## Joined title/ABN handling
-
-A standalone heading such as `TAX INVOICE - ABN 00 000 000 000` is split into
-an explicit title and ABN pair. This example is synthetic. The ABN must still
-have exactly eleven digits; buyer context, trailing unrelated text and
-conflicting ABNs do not silently produce a seller ABN. This is not a general
-search for arbitrary eleven-digit numbers or company names.
+Run `python -m pytest -m "not integration"`. The current branch preserves the
+merged GPU configuration and does not rerun OCR or change model dependencies.
+See [EVALUATION.md](EVALUATION.md) for comparisons against ground truth.
