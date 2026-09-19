@@ -10,8 +10,9 @@ extracted JSON; the user confirmed its total. A larger JPG timed out. This is
 not a general accuracy or performance benchmark. Live RAGFlow ingestion remains
 unverified. See `VALIDATION.md`.
 
-The output now follows the provisional **14-field TIRBIC schema**, version
-`tirbic-14-v1`. This is a breaking change from the original nine-key schema.
+The output now follows the provisional **15-field TIRBIC schema**, version
+`tirbic-15-v2`. This is a breaking change from the previous 14-field schema: `nature_of_expense` is replaced by
+`supply_type` and `expense_category`.
 See [field definitions and migration](docs/TIRBIC_SCHEMA.md). Matching tests use
 synthetic data; no new real OCR accuracy claim follows from this schema update.
 
@@ -170,9 +171,10 @@ Failed runs cannot be prepared for RAGFlow. A forced host termination can leave 
 
 ## Extraction contract
 
-- Exact 14 output keys and provisional meanings are documented in
-  [TIRBIC_SCHEMA.md](docs/TIRBIC_SCHEMA.md). All fields allow null; document type
-  is classified from explicit titles instead of defaulting to tax_invoice.
+- Exact 15 output keys and provisional meanings are documented in
+  [TIRBIC_SCHEMA.md](docs/TIRBIC_SCHEMA.md). Missing fields are null except
+  `buyer_identity`, which uses an empty string. Explicit document titles follow
+  the labelling standard: tax_invoice/bill/invoice outrank receipt/customer_copy.
 - No external LLM, Azure request, model fine-tuning, or invented confidence is
   introduced. This is local rule-based extraction of saved OCR text.
 - Prose labels, adjacent label/value lines, HTML and Markdown key/value rows,
@@ -180,10 +182,13 @@ Failed runs cannot be prepared for RAGFlow. A forced host termination can leave 
   merged table rows are skipped. Arbitrary layouts may still produce nulls.
 - A bare `Date` is not assigned to issue/expense/due date. Conflicting or ambiguous
   dates remain null. Different purchase and payment dates remain unresolved.
-- Paid status and goods/service classification require explicit supported labels.
-  Missing evidence and partial/mixed cases remain null.
-- Taxable extent requires an explicitly labelled percentage (0..100). A phrase
-  such as "includes GST" does not establish 100% taxable sales.
+- Paid status and the new supply_type/expense_category classifications require
+  explicit supported labels. Missing evidence remains null; no semantic model
+  or automatic conversion of legacy nature_of_expense values is introduced.
+- Taxable extent accepts a labelled percentage (0..100). The exact standalone
+  phrase "Total price includes GST" maps to 100 under the supplied dataset
+  annotation convention; conflicting percentages return null. This is not a
+  general tax-law inference from any mention of GST.
 - The >=1000 flag is derived from an unambiguous total, without calculating missing
   amounts. The inclusive boundary is provisional pending client confirmation.
 - Decimal amounts are finite JSON numbers, not strings or binary floats. Explicit
@@ -191,8 +196,29 @@ Failed runs cannot be prepared for RAGFlow. A forced host termination can leave 
   although currency is no longer an output key.
 - Seller ABNs are eleven-digit strings, without external verification. Pydantic
   checks structure and types, not OCR accuracy or legal validity.
+- Document numbers follow document type, with invoice number preferred over
+  receipt number for tax invoices (user-confirmed), then reference-number fallback.
+  Transaction/order numbers are excluded.
 - Manifest `schema_version` identifies the extraction contract. Old run artifacts
   remain unchanged and must not be compared as if they used the new keys.
+
+## Offline field evaluation
+
+Evaluation does not start OCR or require GPU access. Reference input is a plain
+field map: explicit null means "not found"; omitted reference fields are skipped.
+Predictions may be our plain extracted JSON or one Azure field map (optionally
+wrapped in `{"fields": ...}`). Full Azure batches and Label Studio exports need
+an explicit adapter; they are not silently interpreted by this script.
+
+```powershell
+python scripts/evaluate_fields.py --expected samples/tax_invoices/expected.json --predicted outputs/YOUR_RUN/extracted.json --run-id eval-synthetic-01
+```
+
+Use `--prediction-format azure` for Azure field objects. See
+[the evaluation contract](docs/EVALUATION.md). Outputs are counts and per-field
+statuses without document values; reports are saved in a new ignored output
+folder. Reusing a run ID fails instead of overwriting. A synthetic self-comparison
+only checks the evaluation path, not OCR accuracy.
 
 ## Local API
 

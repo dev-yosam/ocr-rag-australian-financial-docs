@@ -4,7 +4,7 @@ import re
 from typing import Protocol
 
 from app.core.errors import ExtractionError
-from app.schemas.invoice import TaxInvoice
+from app.schemas.invoice import TaxInvoice, SUPPLY_TYPES, EXPENSE_CATEGORIES
 from app.extraction.structure import document_rows, label, labelled_pairs
 
 
@@ -55,7 +55,8 @@ LABELS = {
     "total_cost": {"total", "grand total", "total (inc gst)", "total (incl. gst)", "total incl gst", "total including gst", "total cost"},
     "payment_due_date": {"payment due date", "due date", "date due"},
     "buyer_identity": {"customer", "bill to", "buyer", "recipient", "buyer identity", "buyer name", "customer name", "buyer abn", "customer abn"},
-    "nature_of_expense": {"nature of expense", "expense type"},
+    "supply_type": {"supply type"},
+    "expense_category": {"expense category"},
     "paid": {"paid", "payment status", "status of payment"},
     "taxable_sale_extent": {"taxable sale extent", "taxable sale extent (%)", "taxable percentage"},
 }
@@ -64,7 +65,9 @@ TITLES = {"tax invoice": "tax_invoice", "invoice": "invoice", "receipt": "receip
 
 KNOWN = set().union(*LABELS.values()) | set(TITLES) | {
     "currency", "date", "subtotal", "sub total", "amount due", "balance due",
-    "document type", "name", "description", "amount", "quantity", "price", "unit price",
+    "reference number", "reference no", "reference no.", "reference #",
+    "transaction number", "transaction no", "order number", "order no",
+    "nature of expense", "expense type", "document type", "name", "description", "amount", "quantity", "price", "unit price",
 }
 
 
@@ -109,6 +112,54 @@ def payment_status(value: str) -> bool | None:
     return None
 
 
+def classify_document(titles: list) -> str | None:
+    # PDF gives precedence between tiers, not within a tier.
+    if None in titles:
+        return None
+    higher = set(titles) & {"tax_invoice", "bill", "invoice"}
+    return one(list(higher)) if higher else one(titles)
+
+
+def document_number(pairs: list[tuple[str, str]], kind: str | None) -> str | None:
+    groups = {
+        "invoice": {"invoice number", "invoice no", "invoice no.", "invoice #"},
+        "receipt": {"receipt number", "receipt no", "receipt no.", "receipt #"},
+        "bill": {"bill number"},
+        "generic": {"document number"},
+        "reference": {"reference number", "reference no", "reference no.", "reference #"},
+    }
+    # For tax invoices, use an invoice number first and a receipt number if no
+    # invoice number exists. Invoice priority is confirmed by the user.
+    order = {
+        "tax_invoice": ["invoice", "receipt", "generic", "reference"],
+        "invoice": ["invoice", "generic", "reference"],
+        "receipt": ["receipt", "generic", "reference"],
+        "bill": ["bill", "generic", "reference"],
+        "customer_copy": ["generic", "reference"],
+    }.get(kind, ["generic", "reference"])
+    # Keep useful unambiguous explicitly labelled IDs if document type is absent.
+    if kind is None:
+        order = ["unclassified", "reference"]
+        groups["unclassified"] = set().union(*(groups[k] for k in ("invoice", "receipt", "bill", "generic")))
+    for group in order:
+        matches = [v for k, v in pairs if k in groups[group]]
+        if matches:
+            normalized = [re.sub(r"\s", "", v) if v and v.lower() not in {"unknown", "n/a", "null"} else None for v in matches]
+            return one(normalized)  # Conflicts never fall through to another ID.
+    return None
+
+
+def safe_buyer(value: str) -> str | None:
+    # Do not emit explicitly labelled or standalone payment-card identifiers.
+    if re.search(r"\b(?:card|visa|mastercard|amex|eftpos)\b", value, re.I):
+        return None
+    if re.fullmatch(r"[\d\s*Xx#-]+", value):
+        digits = re.sub(r"\s", "", value)
+        if not re.fullmatch(r"[0-9]{11}", digits):
+            return None
+    return value
+
+
 class RuleInvoiceExtractor:
     LABELS = LABELS
 
@@ -124,7 +175,7 @@ class RuleInvoiceExtractor:
         values = {}
         titles = [TITLES[label(row[0])] for row in rows if len(row) == 1 and label(row[0]) in TITLES]
         titles += [TITLES.get(label(v)) for k, v in pairs if k == "document type"]
-        values["document_type"] = one(titles)
+        values["document_type"] = classify_document(titles)
         for field, labels in LABELS.items():
             candidates = [v for k, v in pairs if k in labels]
             if field in {"date_of_issue", "date_of_expense", "payment_due_date"}:
@@ -136,13 +187,25 @@ class RuleInvoiceExtractor:
                 candidates = [v if re.fullmatch(r"[0-9]{11}", v) else None for v in candidates]
             elif field == "paid":
                 candidates = [payment_status(v) for v in candidates]
-            elif field == "nature_of_expense":
-                candidates = [v.lower() if v.lower() in {"goods", "service"} else None for v in candidates]
+            elif field in {"supply_type", "expense_category"}:
+                allowed = SUPPLY_TYPES if field == "supply_type" else EXPENSE_CATEGORIES
+                normalized = [re.sub(r"\s+", "_", v.strip().lower()) for v in candidates]
+                candidates = [v if v in allowed else None for v in normalized]
+            elif field == "buyer_identity":
+                candidates = [safe_buyer(v) if v and v.lower() not in {"unknown", "n/a", "null"} else None for v in candidates]
             elif field == "taxable_sale_extent":
                 candidates = [percent(v) for v in candidates]
             else:
                 candidates = [v if v and v.lower() not in {"n/a", "null", "unknown"} else None for v in candidates]
             values[field] = one(candidates)
+        values["document_number"] = document_number(pairs, values["document_type"])
+        values["buyer_identity"] = values["buyer_identity"] or ""
+        # Dataset convention supplied in labelling-standards.pdf, not a tax-law
+        # conclusion. Use only the exact standalone example; retain conflicts.
+        includes_gst = any(len(row) == 1 and row[0].strip().rstrip(".").lower() == "total price includes gst" for row in rows)
+        if includes_gst:
+            percentages = [percent(v) for k, v in pairs if k in LABELS["taxable_sale_extent"]]
+            values["taxable_sale_extent"] = one(percentages + [Decimal("100")])
         total = values["total_cost"]
         values["is_total_cost_equal_to_or_higher_than_1000"] = total >= Decimal("1000") if total is not None else None
         return TaxInvoice(**values)

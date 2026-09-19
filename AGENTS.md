@@ -38,8 +38,14 @@ RUN_PADDLEOCR_INTEGRATION / RUN_RAGFLOW_INTEGRATION. Missing services are blocke
 not evidence of success. Verify against official documentation before changing
 dependencies or provider contracts.
 
-User-approved schema extension: align local extraction with the supplied 14-field
+User-approved schema extension: align local extraction with the supplied 15-field
 TIRBIC contract for tax invoices, bills, receipts, customer copies and invoices.
 Use docs/TIRBIC_SCHEMA.md for provisional semantics and pending client decisions.
 Keep synthetic tests and private-data restrictions in force. GPU and RAGFlow
 runtime deployment are not part of this schema change.
+
+The user-supplied labelling-standards.pdf supersedes the previous 14-field schema.
+Use tirbic-15-v2; nature_of_expense is removed. The user explicitly authorized
+creation of feat/update-labelling-standards for this update; commit/push remain
+user-controlled. Invoice number takes priority over receipt number for tax
+invoices by explicit user clarification. Preserve merged GPU configuration.
