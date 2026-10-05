@@ -19,8 +19,20 @@ def one(values: list):
 
 def parse_date(value: str) -> date | None:
     value = value.strip()
-    if re.fullmatch(r"\d{1,2}[/-]\d{1,2}[/-]\d{4}", value):
-        first, second, year = map(int, re.split(r"[/-]", value))
+    # Discard only a complete, valid clock suffix, never arbitrary trailing text.
+    timestamp = re.fullmatch(r"(.+?)[ T](\d{2}:\d{2}(?::\d{2})?)", value)
+    if timestamp:
+        try:
+            datetime.strptime(timestamp[2], "%H:%M:%S" if timestamp[2].count(":") == 2 else "%H:%M")
+        except ValueError:
+            return None
+        value = timestamp[1]
+    if re.fullmatch(r"\d{1,2}[/-]\d{1,2}[/-](?:\d{4}|\d{2})", value):
+        parts = re.split(r"[/-]", value)
+        first, second, year = map(int, parts)
+        # Contemporary receipt convention: YY means 20YY (not a moving pivot).
+        if len(parts[2]) == 2:
+            year += 2000
         if first <= 12 and second <= 12 and first != second:
             return None
         try:
@@ -51,7 +63,7 @@ LABELS = {
     "document_number": {"invoice number", "invoice no", "invoice no.", "invoice #", "receipt number", "receipt no", "receipt no.", "receipt #", "document number", "bill number"},
     "date_of_issue": {"invoice date", "date of invoice", "issue date", "date issued", "date of issue", "receipt date"},
     "date_of_expense": {"date of expense", "purchase date", "transaction date", "payment date", "date paid"},
-    "gst": {"gst", "gst (10%)", "gst amount", "total gst"},
+    "gst": {"gst", "gst (10%)", "gst amount", "total gst", "g.s.t", "g.s.t.", "gst included in total", "g.s.t included in total", "g.s.t. included in total"},
     "total_cost": {"total", "grand total", "total (inc gst)", "total (incl. gst)", "total incl gst", "total including gst", "total cost"},
     "payment_due_date": {"payment due date", "due date", "date due"},
     "buyer_identity": {"customer", "bill to", "buyer", "recipient", "buyer identity", "buyer name", "customer name", "buyer abn", "customer abn"},
@@ -64,7 +76,7 @@ TITLES = {"tax invoice": "tax_invoice", "invoice": "invoice", "receipt": "receip
           "bill": "bill", "customer copy": "customer_copy"}
 
 KNOWN = set().union(*LABELS.values()) | set(TITLES) | {
-    "currency", "date", "subtotal", "sub total", "amount due", "balance due",
+    "currency", "date", "date/time", "pos timestamp", "purchase", "eftpos", "balance", "no", "no.", "subtotal", "sub total", "amount due", "balance due",
     "reference number", "reference no", "reference no.", "reference #",
     "transaction number", "transaction no", "order number", "order no",
     "nature of expense", "expense type", "document type", "name", "description", "amount", "quantity", "price", "unit price",
@@ -85,7 +97,10 @@ def invoice_rows(markdown: str) -> list[list[str]]:
     )
     for row in document_rows(markdown):
         match = header.fullmatch(row[0].strip()) if len(row) == 1 else None
-        if match:
+        pos = re.fullmatch(r"(\d{1,2}[/-]\d{1,2}[/-]\d{4}(?: \d{2}:\d{2}(?::\d{2})?)?)\s+No\.?\s*:\s*([A-Za-z0-9-]+)", row[0].strip(), re.I) if len(row) == 1 else None
+        if pos:
+            rows.extend([["pos timestamp", pos[1]], ["no", pos[2]]])
+        elif match:
             rows.extend([[match[1]], [match[2], match[3]]])
         else:
             rows.append(row)
@@ -126,6 +141,7 @@ def document_number(pairs: list[tuple[str, str]], kind: str | None) -> str | Non
         "receipt": {"receipt number", "receipt no", "receipt no.", "receipt #"},
         "bill": {"bill number"},
         "generic": {"document number"},
+        "bare": {"no", "no."},
         "reference": {"reference number", "reference no", "reference no.", "reference #"},
     }
     # For tax invoices, use an invoice number first and a receipt number if no
@@ -134,7 +150,7 @@ def document_number(pairs: list[tuple[str, str]], kind: str | None) -> str | Non
         "tax_invoice": ["invoice", "receipt", "generic", "reference"],
         "invoice": ["invoice", "generic", "reference"],
         "receipt": ["receipt", "generic", "reference"],
-        "bill": ["bill", "generic", "reference"],
+        "bill": ["bill", "generic", "bare", "reference"],
         "customer_copy": ["generic", "reference"],
     }.get(kind, ["generic", "reference"])
     # Keep useful unambiguous explicitly labelled IDs if document type is absent.
@@ -199,6 +215,30 @@ class RuleInvoiceExtractor:
                 candidates = [v if v and v.lower() not in {"n/a", "null", "unknown"} else None for v in candidates]
             values[field] = one(candidates)
         values["document_number"] = document_number(pairs, values["document_type"])
+        # PURCHASE is a transaction total only on an explicitly identified
+        # customer copy, not an arbitrary invoice line item.
+        if values["document_type"] == "customer_copy":
+            totals = [money(v) for k, v in pairs if k in LABELS["total_cost"] or k == "purchase"]
+            values["total_cost"] = one(totals)
+        shared_date_label = {"customer_copy": "date/time", "bill": "pos timestamp"}.get(values["document_type"])
+        if shared_date_label:
+            for field in ("date_of_expense", "date_of_issue"):
+                if not any(k in LABELS[field] for k, v in pairs):
+                    values[field] = one([parse_date(v) for k, v in pairs if k == shared_date_label])
+        payment_evidence = [payment_status(v) for k, v in pairs if k in LABELS["paid"]]
+        if values["document_type"] == "customer_copy" and values["total_cost"] is not None and any(k == "purchase" for k, v in pairs):
+            for row in rows:
+                text = " ".join(row).strip().lower()
+                if re.fullmatch(r"approved(?:\s+00)?", text):
+                    payment_evidence.append(True)
+                elif text == "declined":
+                    payment_evidence.append(False)
+        if values["document_type"] == "bill" and values["total_cost"] is not None and values["total_cost"] > 0:
+            tenders = [money(v) for k, v in pairs if k == "eftpos"]
+            balances = [money(v) for k, v in pairs if k == "balance"]
+            if tenders and balances and one(tenders) == values["total_cost"] and one(balances) == 0:
+                payment_evidence.append(True)
+        values["paid"] = one(payment_evidence)
         values["buyer_identity"] = values["buyer_identity"] or ""
         # Dataset convention supplied in labelling-standards.pdf, not a tax-law
         # conclusion. Use only the exact standalone example; retain conflicts.

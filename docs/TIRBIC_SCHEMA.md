@@ -13,14 +13,14 @@ source coordinates are fabricated.
 | Field | Type | Current implementation |
 |---|---|---|
 | document_type | enum or null | Explicit title/type label. tax_invoice, bill, invoice outrank receipt and customer_copy. Multiple different titles within one tier remain unresolved. |
-| document_number | string or null | Type-matching number; tax invoices prefer invoice number, then receipt number (user-confirmed). Generic document number and then reference number are fallback. Never transaction/order number. Conflicting candidates in a selected tier return null. |
-| total_cost | Decimal or null | Explicit total/grand total/inclusive total; no computed sums or amount-due substitution. |
+| document_number | string or null | Type-matching number; tax invoices prefer invoice number, then receipt number (user-confirmed). Generic document number and then reference number are fallback. Bill also accepts a labelled No./No fallback. Never transaction/order number. Conflicting candidates in a selected tier return null. |
+| total_cost | Decimal or null | Explicit total/grand total/inclusive total; customer_copy also accepts PURCHASE. Conflicts remain null; no computed sums or amount-due substitution. |
 | seller_business_name | string or null | Explicit supplier/seller labels; unlabelled company names are not inferred. |
-| date_of_expense | date or null | Explicit purchase/transaction/payment date; conflicting dates remain unresolved. |
-| date_of_issue | date or null | Explicit invoice/issue/receipt date, not a bare Date. |
+| date_of_expense | date or null | Explicit purchase/transaction/payment date, with constrained POS timestamp fallback described below; conflicts remain unresolved. |
+| date_of_issue | date or null | Explicit invoice/issue/receipt date, with constrained POS timestamp fallback described below; not a generic bare Date. |
 | supply_type | enum or null | goods, services, goods_and_services, penalties. Explicit Supply Type label only. |
 | expense_category | enum or null | housing, utilities, food, transportation, healthcare, debt_repayment, savings_and_investments, entertainment, personal_care, miscellaneous. Explicit Expense Category label only. |
-| paid | boolean or null | Explicit paid/unpaid status. Partial/unknown states remain null. |
+| paid | boolean or null | Explicit paid/unpaid status or constrained POS payment evidence below. Conflicts remain null. |
 | is_total_cost_equal_to_or_higher_than_1000 | boolean or null | total_cost >=1000, or null without a safe total. |
 | seller_abn | string or null | Explicit ABN, eleven digits; buyer context excluded. No external verification. |
 | gst | Decimal or null | Explicit GST, never calculated from total. |
@@ -61,7 +61,7 @@ seller_abn, invoice_number -> document_number, invoice_date -> date_of_issue,
 total -> total_cost; subtotal/currency are not output keys.
 The Python TaxInvoice class name and /v1/invoices/process endpoint remain.
 
-## Layout support and verification
+## Rules baseline: layout support and verification
 
 Prose, adjacent label/value lines, simple HTML/Markdown tables, and standalone
 joined title/ABN headings are supported. Complex merged rows and arbitrary
@@ -70,3 +70,45 @@ unlabelled layouts still require further work. Tests are synthetic.
 Run `python -m pytest -m "not integration"`. The current branch preserves the
 merged GPU configuration and does not rerun OCR or change model dependencies.
 See [EVALUATION.md](EVALUATION.md) for comparisons against ground truth.
+
+
+## Rules baseline: POS matching extensions (2026-09-20)
+
+These rules are tested with manually authored synthetic text, not real PaddleOCR
+output. Real image-to-JSON acceptance still requires the corresponding OCR artifacts.
+
+- Date values accept a valid HH:MM or HH:MM:SS suffix. Invalid clocks and ambiguous
+  day/month values remain null. Two-digit years explicitly mean 2000-2099; this is
+  a contemporary-receipt convention, not support for historical documents.
+- On customer copies, DATE/TIME supplies issue and expense dates only when their
+  specific labels are absent. Explicit invalid/conflicting fields are not replaced.
+- On bills, an exact combined numeric date/time + No: identifier row supplies a
+  POS date for the same fallback. A generic Date elsewhere still does not suffice.
+- No:/No.: identifiers are a bill-only fallback after Bill Number/Document Number;
+  order numbers, TID, STAN and RRN are not promoted to document numbers.
+- GST Included In Total, G.S.T Included In Total and dotted variants match GST
+  amounts. This wording alone does not set taxable_sale_extent to 100.
+- PURCHASE is a total candidate only for customer_copy. Conflicting totals remain null.
+- Customer-copy PURCHASE with a resolved total and a standalone Approved or
+  Approved 00 line supports paid=true. Standalone Declined supplies conflicting/
+  negative evidence. A bill requires both EFTPOS equal to its positive total and
+  Balance equal to zero before deriving paid=true. Explicit status conflicts stay null.
+- Seller names without labels, supply_type and expense_category are still not
+  inferred from merchant names or logos. No merchant-specific lookup was added.
+
+Legacy annotations using nature_of_expense and fractional taxable_sale_extent
+must be reviewed before 15-field evaluation. No automatic legacy conversion or
+claim of a full match is made. Real samples and ground truth are not committed.
+
+## Optional local LLM extraction (2026-09-20)
+
+`--extractor llm` selects Qwen3-4B-Instruct-2507 to interpret OCR Markdown and
+populate this same 15-field schema. It can propose unlabelled merchant names and
+supply/expense classifications from context. These are model predictions needing
+evaluation, not a change to field definitions or proof of accuracy. The rules
+baseline's label/line-adjacency limitations above do not describe the LLM strategy.
+
+Python validates all values, source quotations, dates and monetary types and
+recomputes the threshold flag. It does not run the rule extractor as a fallback.
+No new confidence score or silent legacy ground-truth conversion is introduced.
+See [local LLM usage](LLM.md) for evidence artifacts, CPU/GPU setup and limitations.

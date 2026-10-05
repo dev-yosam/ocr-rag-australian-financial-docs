@@ -1,0 +1,9 @@
+# Isolated text-LLM worker: Windows x86_64, CPython 3.13.
+# Do not install into the PaddleOCR environment.
+# PyTorch CPU build source: https://pytorch.org/get-started/previous-versions/
+--index-url https://pypi.org/simple
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.8.0+cpu
+transformers==4.57.6
+pydantic==2.13.5
+simplejson==4.1.2

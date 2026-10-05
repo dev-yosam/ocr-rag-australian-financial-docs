@@ -1,0 +1,34 @@
+#!/bin/bash
+#PBS -N invoice_qwen
+#PBS -q small_gpuq
+#PBS -l select=1:ngpus=1:ncpus=4:mem=32gb
+#PBS -l walltime=02:00:00
+#PBS -j oe
+
+# Submit from the project root using qsub; run_id is always unique.
+# Default: synthetic image -> real PaddleOCR -> real Qwen -> validation.
+# Optional: qsub -v OCR_RUN=outputs/previous_run scripts/cetus_llm.pbs
+# Optional: qsub -v INPUT_PATH=private_inputs/approved_invoice.png scripts/cetus_llm.pbs
+# Upload/use of private data on Cetus needs the project's existing authorization.
+set -euo pipefail
+cd "${PBS_O_WORKDIR:?Submit this job from the project root}"
+test -f pyproject.toml
+export PADDLEOCR_DEVICE=gpu:0
+export LLM_DEVICE=gpu:0
+export LLM_DTYPE=float16
+export INVOICE_EXTRACTOR=llm
+export LLM_PYTHON=.venv-llm/bin/python
+export LLM_CPU_THREADS=4
+export PADDLEOCR_TIMEOUT_SECONDS=3600
+export LLM_TIMEOUT_SECONDS=3000
+export OMP_NUM_THREADS=1
+# Respect PBS CUDA_VISIBLE_DEVICES: gpu:0 is the first assigned visible device.
+hostname
+nvidia-smi
+.venv-llm/bin/python scripts/check_llm_environment.py --models
+run_id="qwen_${PBS_JOBID//[^A-Za-z0-9_-]/_}_$(date +%Y%m%d_%H%M%S)"
+if [[ -n "${OCR_RUN:-}" ]]; then
+    .venv-gpu/bin/python -m app.cli extract "$OCR_RUN" --extractor llm --run-id "$run_id"
+else
+    .venv-gpu/bin/python -m app.cli process "${INPUT_PATH:-samples/tax_invoices/sample_invoice.png}" --extractor llm --run-id "$run_id"
+fi

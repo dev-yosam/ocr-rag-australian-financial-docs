@@ -26,4 +26,5 @@ markers = [
   "integration: requires a running external dependency or actual OCR models",
   "paddleocr_integration: requires actual local PaddleOCR-VL-1.6 models",
   "ragflow_integration: writes synthetic Markdown to a configured self-hosted dataset",
+  "llm_integration: requires the pinned local Qwen model and isolated LLM environment",
 ]

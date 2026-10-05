@@ -284,3 +284,131 @@ Local default is CPU; GPU remains explicit. Both use the same full VL-1.6 pipeli
   acceptance or accuracy. Inspect the ignored local manifest at
   `outputs/integration-9715a8ad27ec46b493c5d7faa65081ae/manifest.json`.
   The normal default timeout remains 1800 seconds. No success output was fabricated.
+
+
+## Local POS matching update (2026-09-20)
+
+- Added synthetic cases for POS timestamps, bill number context, GST label variants,
+  customer-copy purchase totals, payment evidence and conflicting/invalid inputs.
+- `python -m pytest -m "not integration" -q`: 254 passed, 1 skipped (Windows
+  symlink permission), 2 integration tests deselected, existing AnyIO warning.
+- Real user-provided photos were reviewed visually, not executed through OCR.
+  No raw provider output was supplied for them; no end-to-end accuracy or full
+  ground-truth score is claimed. No private data added to tracked tests/files.
+- Legacy schema and percentage-unit differences remain evaluation blockers for a
+  full 15-field comparison. Unlabelled sellers/classification remain unsupported.
+- Changes remain uncommitted on the existing main branch; no branch switch,
+  stage, commit, push or remote operation was performed.
+
+## Local Qwen CPU / Cetus GPU implementation (2026-09-20)
+
+Work remained on `feat/receipt-matching-rules`; existing POS-rule changes were
+preserved. No stage, commit, push, branch switch or remote Git operation performed.
+
+Implemented:
+
+- Explicit `rules` / `llm` selection for the shared CLI/API pipeline; Qwen
+  interprets OCR Markdown with the current 15-field definitions. The default
+  remains `rules`. Python validates evidence/types/dates/amounts and recomputes
+  the threshold flag. No rule fallback or cloud API.
+- `app.cli extract` replays verified raw/Markdown artifacts into a new run
+  without running OCR. Original source and artifact provenance are preserved.
+  LLM request/response artifacts are private, hashed and retained on failure.
+- Same Qwen/Qwen3-4B-Instruct-2507 source weights on both targets, revision
+  `cdbee75f17c01a7cc42f958dc650907174af0554`. All 11 required files were downloaded
+  explicitly and SHA-256 verified locally; three weight shards total
+  8,044,982,000 bytes. No private receipt was sent to a model provider.
+- Separate hash-pinned Windows Python 3.13 CPU and Linux Python 3.11 CUDA 12.6
+  LLM locks, Transformers 4.57.6 / Torch 2.8.0 builds. The existing Paddle
+  environment was not replaced. Full setup/replay/PBS instructions: `docs/LLM.md`.
+
+Executed verification:
+
+- `.venv\Scripts\python.exe -m pytest -m "not integration" -q`:
+  **406 passed, 2 skipped, 3 deselected**, one existing Starlette/AnyIO warning.
+  Both skips are unavailable Windows symlink creation. The LLM contract/runtime,
+  model preparation, failure retention, API and replay tests use synthetic data
+  and mocked providers; they are not real model accuracy evidence.
+- Installed `requirements/llm-cpu.lock` in `.venv-llm` with hashes and binary-only
+  distributions. Both `.venv` and `.venv-llm` `pip check` passed.
+- `scripts/check_llm_environment.py`: actual Torch CPU tensor computation and
+  Transformers imports passed with float32 and BF16. `--models` verified the
+  complete local model. Requesting `gpu:0` in the CPU environment correctly
+  exited 1 with no fallback. CPU float32 full inference was not measured.
+- `RUN_LLM_INTEGRATION=1`, `LLM_DEVICE=cpu`, `LLM_DTYPE=bfloat16`,
+  `LLM_TIMEOUT_SECONDS=1800`, `.venv\Scripts\python.exe -m pytest -m llm_integration -v`:
+  **1 passed**, 379 deselected at the time of collection, one existing warning,
+  **877.59 seconds (14m37s)**. This used the real pinned 4B model and handwritten
+  synthetic OCR text. It did not run PaddleOCR or read a real photograph.
+  Returned supplier `Example Test Services`, document number `SYN-004`, issue
+  date `2026-08-27`, total 110 and GST 10; all 15 keys were validated. Unknown
+  fields remained null/empty according to the schema. Additional core-field
+  assertions were checked against the saved real response without rerunning
+  inference. No OCR or general dataset accuracy claim follows.
+- Worker metrics: 1,331 input tokens, 291 output tokens, 859.970 seconds inside
+  generation (includes prompt processing; not a separate decode-speed benchmark),
+  877.113 seconds including worker startup/model loading/checksums. Full model
+  response and extracted result retained in
+  `.runtime/llm-integration-900207b71e6144c2a2d2bed7d134cd5c/`.
+- New token-progress reporting was checked with unit tests and a real Transformers
+  tiny randomly initialized Qwen3 model. That API smoke test is not 4B accuracy
+  evidence. The completed 4B run predates the progress-counter addition.
+- `git diff --check` passed. PBS Bash syntax checked with `bash -n`; `.pbs` files
+  enforce LF endings. Runtime, models, environment and output paths remain ignored.
+
+Remaining deployment / evaluation work:
+
+- The GPU lock was resolved for Linux x86_64 / glibc >= 2.28 / Python 3.11 but
+  **not installed or executed on Cetus by this task**. Submit `scripts/cetus_llm.pbs`
+  there to test the allocated GPU and the full OCR + Qwen path. GPU memory and
+  latency remain unmeasured. Use FP16 for the Turing GPU; native BF16 is rejected.
+- CPU BF16 works on this laptop but is slow even for the short synthetic input.
+  This build is unquantized. A faster CPU deployment would need a separate
+  evaluated optimization/quantization change; increasing a timeout is not a speedup.
+- No new full real-photo OCR + LLM run or 15-field ground-truth dataset evaluation
+  was performed. Evidence validation does not prove correct semantic matching.
+- No new Docker image build, Qwen container deployment, RAGFlow live test,
+  fine-tuning, API key configuration or host-setting change was performed.
+
+## LLM 基本驗證與逐欄人工確認（2026-09-26）
+
+使用者核准將來源證據問題改為人工確認事項。Qwen 繼續負責 15 欄配對；
+Python 保留 JSON 結構、型別、日期、enum、有限金額與 AUD 限制的基本驗證。
+`>=1000` 旗標仍依總額計算，其餘欄位不以舊 matching 規則、ground truth 或其他模型補值。
+
+本次修改：
+
+- `app/llm/contract.py`：新增 `ResponseAssessment`、`assess_response()` 與逐欄來源診斷。
+  引文缺失、不存在或不支持候選值時保留合法欄位，輸出繁體中文確認事項。
+  空白可折疊為一個空格，但不合併數字、不更改大小寫或標點。提示詞版本升為 v2，
+  分類必須引用實際商品文字。缺值維持缺值；引文通過不代表語意正確。
+- `app/llm/adapter.py`：保存 `review.json`、雜湊及 `passed_with_review`，保留模型原始回應。
+- `app/pipeline.py`：CLI/API 共用結果包含 `status`、`requires_review`、review 摘要與
+  artifact 路徑。待確認結果使用 `completed_needs_review`，仍產生 15 欄 `extracted.json`。
+  總額若待確認，衍生門檻旗標也在 API/CLI 摘要列為待確認。
+- `app/cli.py`：以中文呈現狀態、待確認欄位與檔案位置，不列印收據內容。
+- `tests/unit/test_llm_contract.py`、`tests/unit/test_llm_pipeline.py`：新增／更新來源問題、
+  空白正規化、分開數字、基本硬失敗、原值保留、API/CLI 狀態及 OCR 重用等回歸測試。
+- `AGENTS.md`、`README.md`、`docs/LLM.md`：同步新行為與人工確認流程說明。
+
+已執行：
+
+```powershell
+.venv\Scripts\python.exe -m pytest -m "not integration" -q
+```
+
+結果：**435 passed、2 skipped、3 deselected、1 warning**，3.65 秒。
+兩項略過為 Windows 不允許建立 symlink；三項 integration 未選取。
+警告為既有 Starlette/AnyIO 棄用警告。自動化資料與模型 worker 均為合成／fake，
+單元測試通過不能當作模型準確率。
+
+另用先前保存的真實收據 Qwen 回應進行本機「驗證邏輯重查」。先核對來源與舊 artifacts
+雜湊，舊失敗紀錄維持不變，新結果寫入忽略的獨立 output 目錄：
+
+- 新狀態為 `completed_needs_review`，輸出 `extracted.json`、`review.json` 及中文報告。
+- GST／付款引文的換行差異不再阻擋輸出；分類與應稅比例仍列待確認。
+- 消費日期仍為 `null`，沒有猜補。這是同一份舊模型回應在新版驗證器的行為，
+  不是新提示詞的模型推論，也不能宣稱辨識準確率提高。
+- 本次未重新執行 OCR、Qwen、Cetus/GPU、Docker 或 RAGFlow，也未重新下載模型。
+
+`git diff --check` 通過。未 stage、commit、push、切換分支或修改遠端 Git。

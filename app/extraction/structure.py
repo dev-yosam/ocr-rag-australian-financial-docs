@@ -158,13 +158,17 @@ def labelled_pairs(rows: list[list[str]], known: set[str]) -> list[tuple[str, st
                         emit(key, value)
                         i += 1
                 continue
+            matched_prefix = next((candidate for candidate in ordered if any(text.lower().startswith(candidate + separator) for separator in (" ", ":", "："))), None)
+            if matched_prefix is not None:
+                emit(matched_prefix, text[len(matched_prefix):].lstrip(" :："))
+                continue
             split = re.split(r"[:：]", text, maxsplit=1)
             if len(split) == 2:
                 emit(split[0], split[1])
                 continue
             # Explicit known labels may be separated from values by whitespace.
             for candidate in ordered:
-                if text.lower().startswith(candidate + " "):
+                if any(text.lower().startswith(candidate + separator) for separator in (" ", ":", "：")):
                     emit(candidate, text[len(candidate):].strip())
                     break
         i += 1
