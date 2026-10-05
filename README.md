@@ -1,7 +1,7 @@
 # Australian financial document pipeline — Milestone 1
 
 Local-first processing of a **synthetic Australian tax invoice** using the full
-PaddleOCR-VL-1.6 pipeline, conservative rule-based extraction, Pydantic validation,
+PaddleOCR-VL-1.6 pipeline, selectable rule-based or local Qwen extraction, Pydantic validation,
 and a RAGFlow HTTP integration boundary.
 
 **Status: early local prototype; full acceptance is not complete.**
@@ -16,6 +16,21 @@ The output now follows the provisional **15-field TIRBIC schema**, version
 See [field definitions and migration](docs/TIRBIC_SCHEMA.md). Matching tests use
 synthetic data; no new real OCR accuracy claim follows from this schema update.
 
+**Local LLM extension:** [Qwen setup and usage on Windows CPU / Cetus GPU](docs/LLM.md).
+Use `--extractor llm` to enable Qwen3-4B-Instruct-2507, or `--extractor rules`
+for the existing baseline. Qwen runs in a separate `.venv-llm` environment using
+local pinned weights; it needs no API key. The default remains `rules`.
+`python -m app.cli extract outputs/previous_run --extractor llm` reuses a verified
+OCR run, so changes to the extraction prompt do not require repeating OCR.
+Real Qwen extraction from one handwritten synthetic OCR-text fixture passed on
+Windows CPU (BF16) in 14m37s. This is slow and does not establish image-to-JSON
+accuracy. The new Cetus Qwen job and GPU lock have not been run on Cetus yet.
+
+LLM 模式由 Qwen 配對 15 個欄位，Python 檢查基本格式並另列人工確認事項。
+來源證據缺失或不符時，格式合法的值仍保留於 `extracted.json`，疑問寫入 `review.json`，
+狀態為 `completed_needs_review`。這不表示內容已驗證正確，也不會用舊 matching 規則補值。
+本機 CPU 與 Cetus GPU 共用此行為；已備妥 LLM 環境與權重時，更新程式不需重下載模型。
+
 This project began as a fresh directory rather than a GitHub clone. Git history
 and remote operations are controlled by the user.
 
@@ -25,7 +40,9 @@ and remote operations are controlled by the user.
 Synthetic PNG/JPEG/PDF
     -> PaddleOCR subprocess (full VL-1.6 layout + recognition, no network)
     -> raw.json + normalized parsed.md
-         -> independent rule extractor -> Pydantic -> extracted.json
+         -> rules -> extracted.json
+         -> local Qwen3-4B -> basic validation + field review
+                                      -> extracted.json + review.json
          -> offline preparation -> optional self-hosted RAGFlow submission
 ```
 
@@ -35,6 +52,7 @@ bank statements, tax returns, UI, auth systems and production deployment are
 outside Milestone 1.
 
 `app/paddleocr` owns provider integration; `app/extraction` owns field extraction;
+`app/llm` owns offline Qwen, prompts, basic validation and evidence review;
 `app/schemas` owns validation; `app/rag` owns HTTP integration; `app/pipeline.py`
 orchestrates artifacts. CLI and FastAPI use the same pipeline. No database or
 task queue is required. Processing is synchronous and intended for one document
@@ -188,9 +206,10 @@ $env:PADDLEOCR_TIMEOUT_SECONDS="300"
 python -m app.cli process "private_inputs/invoice_001.jpg" --run-id private-invoice-001
 ```
 
-Use a new run ID each time. Check `manifest.json` in the run's output directory;
-only a `completed` run has successfully produced validated extraction. Do not
-paste private raw/Markdown/JSON contents into logs, issues, or chat.
+每次使用新的 run ID，並檢查輸出目錄中的 `manifest.json`。LLM 模式的
+`completed_needs_review` 表示已輸出符合基本格式的結果，但仍有確認事項，請讀
+`review.json`；`completed` 表示沒有自動檢查發現的確認事項。兩者均不保證內容正確。
+請勿把私有 raw／Markdown／JSON 內容貼入共用 logs、issues 或 chat。
 
 ### Synthetic development sample
 
@@ -223,7 +242,8 @@ For a completed run:
 outputs/<run-id>/
   raw.json         # untouched provider JSON values, in page order
   parsed.md        # normalized Markdown, with explicit page boundaries
-  extracted.json   # validated invoice, all nine keys, including nulls
+  extracted.json   # 15 欄結果（含 null）；LLM 模式仍須查看 review
+  review.json      # LLM 模式的逐欄確認事項、缺值及 requires_review
   manifest.json    # source/artifact SHA-256, versions, status/failure stage
   ragflow.json     # created by rag prepare/submit
 ```
@@ -236,12 +256,18 @@ Failed runs cannot be prepared for RAGFlow. A forced host termination can leave 
 
 ## Extraction contract
 
+下列標籤、相鄰行與固定文字配對細節屬於 `rules` baseline。使用 `--extractor llm`
+時，由 Qwen 理解 OCR 文字與配對欄位；Python 保留共同的 JSON／型別／日期／enum／
+有限金額／AUD 驗證，並將來源疑問另列於 `review.json`。不因單一來源疑問丟棄整份結果，
+也不使用 rules 補值。詳見 [LLM 輸出及人工確認](docs/LLM.md#輸出驗證與人工確認)。
+
 - Exact 15 output keys and provisional meanings are documented in
   [TIRBIC_SCHEMA.md](docs/TIRBIC_SCHEMA.md). Missing fields are null except
   `buyer_identity`, which uses an empty string. Explicit document titles follow
   the labelling standard: tax_invoice/bill/invoice outrank receipt/customer_copy.
 - No external LLM, Azure request, model fine-tuning, or invented confidence is
-  introduced. This is local rule-based extraction of saved OCR text.
+  introduced. The default rules baseline extracts saved OCR text; the explicitly
+  selected LLM strategy uses the locally prepared Qwen model.
 - Prose labels, adjacent label/value lines, HTML and Markdown key/value rows,
   and a header row followed by a matching value row are supported. Complex
   merged table rows are skipped. Arbitrary layouts may still produce nulls.
@@ -298,7 +324,9 @@ readiness claim. `POST /v1/invoices/process` accepts:
 {"source":"samples/tax_invoices/sample_invoice.png"}
 ```
 
-The response contains `run_id`, `invoice`, and repository-relative artifact paths.
+回覆包含 `run_id`、`invoice`、`status`、`requires_review`、review 摘要，以及
+repository-relative artifact 路徑。LLM 結果為 `completed_needs_review` 時，請查看
+`review.json` 的逐欄確認事項，不要只因收到 invoice 就判定內容正確。
 Inputs must be repository-relative with forward slashes. Absolute paths, URLs,
 parent traversal, Windows alternate data streams and resolved symlink/junction
 escapes are rejected. Files are limited to 20 MiB; images to 25 megapixels. PDF

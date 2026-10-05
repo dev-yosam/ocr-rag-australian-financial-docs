@@ -1,5 +1,6 @@
 import argparse
 import sys
+from dataclasses import replace
 
 from app.core.config import Settings
 from app.core.errors import PipelineError
@@ -8,21 +9,45 @@ from app.rag.artifacts import prepare, submit
 from app.rag.client import RagFlowClient
 
 
+def _print_extraction_result(result: dict, *, reused_ocr: bool = False) -> None:
+    # Only report metadata: receipt text and model quotations stay in artifacts.
+    print(f"處理完成：{result['run_id']}；狀態：{result['status']}")
+    if reused_ocr:
+        print("已重用既有 OCR 結果，未重新辨識圖片。")
+    if result["requires_review"]:
+        fields = ", ".join(result["review"]["fields_requiring_review"])
+        print(f"需要人工確認的欄位：{fields}")
+        print(f"欄位值已保留；檢查說明：{result['artifacts']['review.json']}")
+    elif result["review"] is not None:
+        print("格式驗證通過，未發現來源檢查問題；不代表內容已確認正確。")
+    print(f"結果：{result['artifacts']['extracted.json']}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Local synthetic invoice processing")
     commands = parser.add_subparsers(dest="command", required=True)
     process = commands.add_parser("process")
     process.add_argument("source")
     process.add_argument("--run-id")
+    process.add_argument("--extractor", choices=("rules", "llm"))
+    extract = commands.add_parser("extract", help="Re-extract a previous run without rerunning OCR")
+    extract.add_argument("directory")
+    extract.add_argument("--run-id")
+    extract.add_argument("--extractor", choices=("rules", "llm"))
     rag = commands.add_parser("rag").add_subparsers(dest="action", required=True)
     for action in ("prepare", "submit"):
         rag.add_parser(action).add_argument("directory")
     args = parser.parse_args(argv)
     try:
         settings = Settings.from_env()
+        if getattr(args, "extractor", None):
+            settings = replace(settings, extractor=args.extractor)
         if args.command == "process":
             result = InvoicePipeline(settings).process(args.source, args.run_id)
-            print(f"Completed run: {result['run_id']}; artifacts saved locally")
+            _print_extraction_result(result)
+        elif args.command == "extract":
+            result = InvoicePipeline(settings).reextract(args.directory, args.run_id)
+            _print_extraction_result(result, reused_ocr=True)
         elif args.action == "prepare":
             prepare(settings.root, args.directory)
             print("RAGFlow preparation saved locally; no network request made")

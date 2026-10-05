@@ -53,3 +53,23 @@ invoices by explicit user clarification. Preserve merged GPU configuration.
 User-approved runtime extension: create feat/cpu-gpu-dual-mode and support explicit
 CPU or GPU selection. Default local settings to CPU; preserve GPU dependency recipe
 and GPU Compose service. Never silently fall back. Commit/push remain user-controlled.
+
+User-approved LLM extension: keep the rules baseline and add explicit offline
+Qwen3-4B-Instruct-2507 extraction on Windows CPU and Cetus GPU. Use identical
+pinned model weights, a separate PyTorch environment, and the 15-field contract
+with source-evidence review. Prepare models explicitly; no cloud API, secret, automatic download,
+or fallback during inference. Keep prompts/responses private and hashed. Replaying
+existing OCR must create a new run and verify source-artifact hashes. This does
+not authorize uploading private receipts to Cetus or changing Git history.
+
+使用者已核准的 LLM 驗證調整：由 Qwen 配對欄位，不用舊 matching 規則補值。
+JSON 結構、欄位型別、合法日期、enum、有限金額及 AUD 限制仍須通過基本驗證；
+來源證據缺失、不符或無法支持欄位值，改列逐欄人工確認事項，不因此丟棄整份結果。
+可折疊無語意差異的空白，但須保留詞與數字間的分隔，不可把分離的數字合併。
+將疑問與缺值寫入私有 review.json；需要確認時使用 completed_needs_review，
+無確認事項時使用 completed。兩者均不保證內容正確；semantic_accuracy_verified
+維持 false，準確率須另以人工 ground truth 評估。CPU/GPU 共用此處理契約。
+
+User reporting preference: write all test and evaluation reports in Traditional
+Chinese, including findings, limitations, and next steps. Preserve code, commands,
+model names, filenames, and machine-readable schema keys verbatim.

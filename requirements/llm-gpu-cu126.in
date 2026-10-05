@@ -1,0 +1,10 @@
+# Isolated text-LLM worker: Linux x86_64, glibc >= 2.28, CPython 3.11.
+# Do not install into the PaddleOCR environment.
+# PyTorch CUDA 12.6 build: supports the Cetus Turing GPU architecture.
+# Source: https://pytorch.org/get-started/previous-versions/
+--index-url https://pypi.org/simple
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.8.0+cu126
+transformers==4.57.6
+pydantic==2.13.5
+simplejson==4.1.2

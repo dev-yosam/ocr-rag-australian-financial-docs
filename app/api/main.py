@@ -29,7 +29,8 @@ def create_app(pipeline: InvoicePipeline | None = None) -> FastAPI:
 
     @api.get("/health")
     def health():
-        return {"status": "ok", "ocr_readiness": "not_checked"}
+        return {"status": "ok", "ocr_readiness": "not_checked",
+                "extractor": service.settings.extractor, "llm_readiness": "not_checked"}
 
     @api.post("/v1/invoices/process")
     def process(request: ProcessRequest):
