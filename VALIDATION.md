@@ -412,3 +412,64 @@ Python 保留 JSON 結構、型別、日期、enum、有限金額與 AUD 限制�
 - 本次未重新執行 OCR、Qwen、Cetus/GPU、Docker 或 RAGFlow，也未重新下載模型。
 
 `git diff --check` 通過。未 stage、commit、push、切換分支或修改遠端 Git。
+
+## 單文件純 OCR 模式（2026-10-06）
+
+本次範圍為使用者指定的第 1、2 項：完整 DocLayoutV3＋VL-1.6 解析，不執行 rules
+或 Qwen；沒有 extracted.json 也能正常記錄 OCR 完成。工作分支為
+`feat/ocr-only-diagnostics`。不新增批次、視覺化、YAML、API 路由或 Cetus 部署。
+
+變更檔案與行為：
+
+- `app/ocr_pipeline.py`：新增獨立 `OcrPipeline.parse()`。保留 provider raw 與
+  Markdown，產生來源／artifact 雜湊、版本、裝置、耗時與獨立 OCR 狀態。
+  `schema_version=ocr-run-v1`、`mode=ocr_only`、`extraction.status=not_requested`，
+  `semantic_accuracy_verified=false`。空結果／頁數不一致不可標成完成；失敗保留已取得 raw。
+- `app/cli.py`：新增 `parse SOURCE --run-id ID`，輸出中文狀態與三份 artifact 路徑。
+- `app/core/config.py`：`from_ocr_env()` 只讀取 Paddle 裝置與等待上限，忽略 LLM、
+  extractor 與 RAGFlow 設定。即使 LLM 設定無效，純 OCR 也不依賴它。
+- `app/core/documents.py`／`app/pipeline.py`：共用既有輸入檢查，保留原格式與路徑限制。
+  InvoicePipeline 的 rules／LLM 流程不變；可在後續新 run 重用純 OCR 的結果。
+- `tests/unit/test_ocr_pipeline.py`：新增 22 項合成／fake 測試，覆蓋無 LLM 環境、
+  禁止建構抽取器、CLI、環境隔離、頁面與原始資料保存、失敗／中斷、越界／損毀檔案、
+  拒絕覆寫、雜湊與後續 re-extraction。
+- `tests/integration/test_services.py`：新增 opt-in 真實單文件純 OCR 測試。
+- `README.md`、`docs/DEMO_ZH_TW.md`、`AGENTS.md`：同步本階段行為與使用方式。
+
+資料檢查：
+
+- 使用者資料夾 `private_inputs/ocr_batch10` 共 10 份文件：6 張 JPG、4 份單頁 PDF。
+- JPG 通過格式驗證與像素解碼；PDF 使用本機 PDFium 開啟並讀取頁數與尺寸。
+- 全部符合既有檔案大小／圖片像素限制，SHA-256 均不同；資料夾已被 Git 忽略。
+- 這只是輸入完整性檢查，尚未對這十份文件執行 OCR 或準確率評估；沒有上傳資料。
+
+自動化驗證：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_ocr_pipeline.py -q
+.\.venv\Scripts\python.exe -m pytest -m "not integration" -q
+.\.venv\Scripts\python.exe -m app.cli parse --help
+git diff --check
+```
+
+新增測試：**22 passed**。完整非 integration 測試：**457 passed、2 skipped、
+4 deselected、1 warning**，4.85 秒。兩項跳過為 Windows symlink 權限限制；
+既有 Starlette/AnyIO 棄用警告仍存在。四項 integration 未由這次 pytest 命令執行。
+
+另已執行一次真實 CPU CLI 冒煙測試，與 fake 測試分開記錄：
+
+- 在忽略的 `.runtime/ocr-only-smoke/synthetic.png` 產生 640×260 合成小圖，
+  內容為 `SYNTHETIC OCR TEST`、`NOT VALID FOR PAYMENT`、`Total AUD 11.00`。
+- 用 `parse` 執行完整 PaddleOCR-VL-1.6，`use_layout_detection=true`；
+  PaddleOCR 3.6.0、PaddleX 3.6.0、PaddlePaddle CPU 3.2.1。
+- 設定 `PADDLEOCR_TIMEOUT_SECONDS=300`、`OMP_NUM_THREADS=1`，並刻意將
+  `INVOICE_EXTRACTOR=llm`、`LLM_PYTHON=.runtime/nonexistent-llm/python.exe`、
+  `LLM_CPU_THREADS=INVALID_UNUSED_VALUE`，確認純 OCR 不讀取這些後段設定。
+- 成功 run：`outputs/ocr_only_smoke_20261006_003247`，CLI 退出碼 0。
+  目錄恰好只有 raw.json、parsed.md、manifest.json；來源與結果雜湊已核對。
+- `status=completed`、`ocr_status=completed`、`page_count=1`，
+  parser 初始化、辨識與結果處理合計 119.758 秒。Markdown 中三行測試內容均正確。
+- 此結果只證明小型合成圖片的真實完整 OCR 與單文件輸出契約，不能代表十份文件的
+  準確率或吞吐量，也不是大型合成 invoice 的 opt-in integration 測試。
+
+未重新下載模型、未安裝套件、未執行 Qwen、未提交 Cetus 工作、未修改遠端或 Git 歷史。

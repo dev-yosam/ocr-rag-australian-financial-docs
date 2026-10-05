@@ -73,3 +73,9 @@ JSON 結構、欄位型別、合法日期、enum、有限金額及 AUD 限制仍
 User reporting preference: write all test and evaluation reports in Traditional
 Chinese, including findings, limitations, and next steps. Preserve code, commands,
 model names, filenames, and machine-readable schema keys verbatim.
+
+使用者核准的純 OCR 階段：提供單文件 `parse`，僅執行完整 DocLayoutV3＋VL-1.6，
+不建構 rules／Qwen 抽取器、不要求 LLM 環境。成功保存 raw.json、parsed.md、
+manifest.json，使用 mode=ocr_only 及獨立 ocr_status；無 extracted.json 是正常行為。
+本階段不包含批次、畫框／裁切圖、HTML 預覽、YAML 設定或新的 Cetus 部署。
+private_inputs/ocr_batch10 的使用者資料可在本機檢查；測試 fixtures 維持合成資料。

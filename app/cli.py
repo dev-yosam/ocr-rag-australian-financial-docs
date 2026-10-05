@@ -5,6 +5,7 @@ from dataclasses import replace
 from app.core.config import Settings
 from app.core.errors import PipelineError
 from app.pipeline import InvoicePipeline
+from app.ocr_pipeline import OcrPipeline
 from app.rag.artifacts import prepare, submit
 from app.rag.client import RagFlowClient
 
@@ -26,6 +27,9 @@ def _print_extraction_result(result: dict, *, reused_ocr: bool = False) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Local synthetic invoice processing")
     commands = parser.add_subparsers(dest="command", required=True)
+    parse = commands.add_parser("parse", help="Parse one document with OCR only; no field extraction")
+    parse.add_argument("source")
+    parse.add_argument("--run-id")
     process = commands.add_parser("process")
     process.add_argument("source")
     process.add_argument("--run-id")
@@ -39,10 +43,16 @@ def main(argv: list[str] | None = None) -> int:
         rag.add_parser(action).add_argument("directory")
     args = parser.parse_args(argv)
     try:
-        settings = Settings.from_env()
+        settings = Settings.from_ocr_env() if args.command == "parse" else Settings.from_env()
         if getattr(args, "extractor", None):
             settings = replace(settings, extractor=args.extractor)
-        if args.command == "process":
+        if args.command == "parse":
+            result = OcrPipeline(settings).parse(args.source, args.run_id)
+            print(f"OCR 完成：{result['run_id']}；狀態：{result['ocr_status']}；頁數：{result['page_count']}")
+            print("未執行欄位抽取；OCR 完成不代表內容已確認正確。")
+            for name, path in result["artifacts"].items():
+                print(f"{name}：{path}")
+        elif args.command == "process":
             result = InvoicePipeline(settings).process(args.source, args.run_id)
             _print_extraction_result(result)
         elif args.command == "extract":

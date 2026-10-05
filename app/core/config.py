@@ -44,6 +44,17 @@ class Settings:
             raise InputError("Invalid LLM runtime configuration")
 
     @classmethod
+    def from_ocr_env(cls) -> "Settings":
+        """OCR-only runs read no extractor, LLM, or RAG environment settings."""
+        try:
+            timeout = float(os.environ.get("PADDLEOCR_TIMEOUT_SECONDS") or "1800")
+            if not 1 <= timeout <= 3600:
+                raise ValueError
+        except ValueError:
+            raise InputError("Invalid OCR timeout configuration") from None
+        return cls(device=os.environ.get("PADDLEOCR_DEVICE") or "cpu", ocr_timeout=timeout)
+
+    @classmethod
     def from_env(cls) -> "Settings":
         # Read only named application variables; never dump environment/config.
         try:

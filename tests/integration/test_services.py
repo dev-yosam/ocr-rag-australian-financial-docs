@@ -7,6 +7,7 @@ import pytest
 from app.core.config import ROOT, Settings
 from app.core.files import json_text, read_json
 from app.pipeline import InvoicePipeline
+from app.ocr_pipeline import OcrPipeline
 from app.rag.client import RagFlowClient
 
 
@@ -22,6 +23,22 @@ def test_real_vl16_invoice():
     manifest = read_json(ROOT / "outputs" / result["run_id"] / "manifest.json")
     assert manifest["versions"]["pipeline"] == "PaddleOCR-VL-1.6"
     assert manifest["versions"]["device"] == Settings.from_env().device
+
+
+@pytest.mark.integration
+@pytest.mark.paddleocr_integration
+def test_real_vl16_ocr_only():
+    if os.environ.get("RUN_PADDLEOCR_INTEGRATION") != "1":
+        pytest.skip("Set RUN_PADDLEOCR_INTEGRATION=1 after explicit model preparation")
+    result = OcrPipeline(Settings.from_ocr_env()).parse(
+        "samples/tax_invoices/sample_invoice.png", "integration-ocr-" + uuid.uuid4().hex)
+    output = ROOT / "outputs" / result["run_id"]
+    assert result["ocr_status"] == "completed"
+    assert set(p.name for p in output.iterdir()) == {"raw.json", "parsed.md", "manifest.json"}
+    manifest = read_json(output / "manifest.json")
+    assert manifest["versions"]["pipeline"] == "PaddleOCR-VL-1.6"
+    assert manifest["extraction"]["status"] == "not_requested"
+    assert "SYNTHETIC" in (output / "parsed.md").read_text(encoding="utf-8").upper()
 
 
 @pytest.mark.integration

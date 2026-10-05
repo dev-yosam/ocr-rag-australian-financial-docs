@@ -16,6 +16,14 @@ The output now follows the provisional **15-field TIRBIC schema**, version
 See [field definitions and migration](docs/TIRBIC_SCHEMA.md). Matching tests use
 synthetic data; no new real OCR accuracy claim follows from this schema update.
 
+**純 OCR（不抽取欄位）：** `python -m app.cli parse samples/tax_invoices/sample_invoice.png`
+只執行完整 PP-DocLayoutV3＋PaddleOCR-VL-1.6，保存 `raw.json`、`parsed.md`、
+`manifest.json`。不需要 `.venv-llm` 或 Qwen 權重，不建立 rules／Qwen 抽取器，
+也不讀取 `INVOICE_EXTRACTOR`、`LLM_*` 或 RAGFlow 的環境設定。
+manifest 使用 `mode=ocr_only`、`ocr_status=completed`、`status=completed`，
+表示 OCR 流程完成，不代表文字已比對 ground truth。這個模式沒有 15 欄輸出。
+詳見[中文操作指南的純 OCR 步驟](docs/DEMO_ZH_TW.md#0-只看-ocr-不執行-qwen-或-python-rules)。
+
 **Local LLM extension:** [Qwen setup and usage on Windows CPU / Cetus GPU](docs/LLM.md).
 Use `--extractor llm` to enable Qwen3-4B-Instruct-2507, or `--extractor rules`
 for the existing baseline. Qwen runs in a separate `.venv-llm` environment using
@@ -40,6 +48,7 @@ and remote operations are controlled by the user.
 Synthetic PNG/JPEG/PDF
     -> PaddleOCR subprocess (full VL-1.6 layout + recognition, no network)
     -> raw.json + normalized parsed.md
+         -> parse: stop here; manifest records OCR completion
          -> rules -> extracted.json
          -> local Qwen3-4B -> basic validation + field review
                                       -> extracted.json + review.json
@@ -57,6 +66,11 @@ outside Milestone 1.
 orchestrates artifacts. CLI and FastAPI use the same pipeline. No database or
 task queue is required. Processing is synchronous and intended for one document
 at a time, not concurrent production requests.
+
+`app/ocr_pipeline.py` 提供獨立的 CLI 單文件純 OCR 流程；現有 FastAPI 發票 API
+仍執行欄位抽取。`app/core/documents.py` 共用既有格式、大小與像素限制。
+純 OCR 結果可以交給既有 `extract` 指令，在新目錄進行後續欄位抽取；
+該指令仍會核對原始結果的雜湊。目前沒有批次、YAML 切換、畫框圖或裁切圖匯出功能。
 
 ## Prerequisites and versions
 
