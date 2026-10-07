@@ -1,5 +1,9 @@
 # Windows 本機示範操作指南
 
+若要使用 **GPT 雲端 API** 重用現有 CPU／Cetus OCR 結果，請看
+[GPT 中文操作指南](OPENAI_ZH_TW.md)。`--extractor openai` 會直接呼叫 OpenAI，
+不需 dry run，也不需本機 GPU 或 Qwen 環境。
+
 若要使用 **Gemini 3.5 Flash-Lite** 重用現有 CPU／Cetus OCR 結果，請看
 [Gemini 中文操作指南](GEMINI_ZH_TW.md)。該模式需明確選用與 API key，
 會送出 OCR 文字／座標至 Google；以下純 OCR／Qwen 步驟仍在本機執行。

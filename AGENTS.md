@@ -1,5 +1,17 @@
 # Engineering rules
 
+User-approved OpenAI extension (2026-10-07): add explicit
+`extract ... --extractor openai` using the OpenAI Responses API. The user will
+set OPENAI_API_KEY and run live tests themselves; no mandatory dry run.
+Upload only verified saved OCR parsing blocks when this option is selected,
+not original images, PDFs, local paths or keys. Share Gemini's block prompt,
+schema and non-mutating assessment. Preserve Qwen and pure OCR behavior.
+Default to gpt-6-luna; permit explicit GPT model selection with no fallback.
+Use store=false, no tools, retries or redirects. Keys remain in environment
+and authorization headers only. Automated tests use synthetic data and fake
+HTTP. Git operations remain user-controlled. This is a scoped exception to
+the local-only rules below, not permission for automatic document uploads.
+
 Build a local-first Australian financial Document AI pipeline incrementally.
 PaddleOCR-VL-1.6 (the complete layout + recognition pipeline) is required; never
 silently substitute another OCR system. Keep parsing, field extraction, Pydantic

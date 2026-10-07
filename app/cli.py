@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     extract = commands.add_parser("extract", help="Re-extract a previous run without rerunning OCR")
     extract.add_argument("directory")
     extract.add_argument("--run-id")
-    extract.add_argument("--extractor", choices=("rules", "llm", "gemini"))
+    extract.add_argument("--extractor", choices=("rules", "llm", "gemini", "openai"))
     extract.add_argument("--dry-run", action="store_true", help="Gemini only: save request locally without contacting Google")
     rag = commands.add_parser("rag").add_subparsers(dest="action", required=True)
     for action in ("prepare", "submit"):
@@ -46,6 +46,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if getattr(args, "dry_run", False) and args.extractor != "gemini":
             raise PipelineError("--dry-run requires --extractor gemini")
+        if args.command == "extract" and args.extractor == "openai":
+            from app.openai_extraction.config import OpenAISettings
+            from app.openai_extraction.pipeline import OpenAIPipeline
+            settings = OpenAISettings.from_env()
+            print(f"OpenAI model: {settings.model}")
+            result = OpenAIPipeline(ROOT, settings).reextract(args.directory, args.run_id)
+            print(f"OpenAI：{result['status']}；run_id：{result['run_id']}")
+            print("已重用 OCR 區塊並送至 OpenAI；未重跑 OCR。格式通過不代表內容正確，請查看 review.json。")
+            for name, path in result["artifacts"].items():
+                print(f"{name}：{path}")
+            return 0
         if args.command == "extract" and args.extractor == "gemini":
             from app.gemini.config import GeminiSettings
             from app.gemini.pipeline import GeminiPipeline
@@ -84,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
                 client.close()
         return 0
     except (PipelineError, OSError) as exc:
-        if args.command == "extract" and args.extractor == "gemini" and isinstance(exc, PipelineError):
+        if args.command == "extract" and args.extractor in ("gemini", "openai") and isinstance(exc, PipelineError):
             print(str(exc), file=sys.stderr)
             return 1
         print("Operation failed; inspect local artifacts and documented prerequisites", file=sys.stderr)

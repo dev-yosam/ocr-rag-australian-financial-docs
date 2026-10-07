@@ -575,3 +575,48 @@ http_400／error_body_unavailable。根因尚未確定；不再建議重送相�
 - 新增 11 項合成測試，涵蓋 HTML/BOM 診斷、GET URL／無 body、key 基本字元、
   錯誤遮蔽／無重試／timeout；Gemini 測試 **109 passed**（1.47 秒）。
 - 未由 agent 呼叫 live API，未讀取使用者 key，原 HTTP 400 仍待新診斷結果確認。
+
+### 2026-10-07：OpenAI GPT 雲端欄位抽取
+
+依使用者指示，在既有 `feat/gpt-extraction` 分支開發，完成後由使用者直接測 API，
+不要求 dry run。加入 `extract ... --extractor openai`，預設 `gpt-6-luna`，可明確設定
+`OPENAI_MODEL`、timeout、output tokens 與 reasoning effort。沒有自動模型切換或重試。
+
+實作內容：
+
+- 新增 `app/openai_extraction/{config,contract,client,pipeline}.py`；使用既有 pinned
+  httpx 0.28.1 呼叫固定 OpenAI HTTPS Responses endpoint，不新增 SDK／依賴。
+- 與 Gemini 共用 `app/extraction/block_contract.py` 的完整 OCR blocks、prompt、
+  15 欄 schema 和非改值驗證；Gemini prompt 文字及原 prompt version 保持一致。
+  將原 OCR provenance 檢查移至 `app/extraction/ocr_artifacts.py` 供兩者共用。
+  Qwen 仍維持舊 contract；尚未宣稱三模型的輸入完全對齊。
+- 使用 strict Structured Outputs、`store=false`、不使用工具。API key 僅置於 header，
+  不寫入請求／manifest／錯誤。成功回應保留原始 JSON；任意 HTTP error message
+  不保存，僅記錄允許的錯誤代碼、參數與中文提示。回顯憑證或不安全／過大回應不保存。
+- 記錄請求／回傳模型、response ID、耗時及安全白名單 token 用量，不虛構帳單費用。
+  不重跑 OCR，也不要求 OCR／Qwen 模型存在。Python 不補值、不修正 >=1000 flag。
+  拒答、截斷、HTTP／契約失敗不產生 extracted.json；來源疑點保留候選值供 review。
+- 新增中文操作指南 `docs/OPENAI_ZH_TW.md`，更新 README、DEMO、`.env.example`
+  及 AGENTS 的明確選用 OpenAI 例外。`.env` 仍不自動載入。
+
+驗證：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -m "not integration" -q
+```
+
+- **610 passed、2 skipped、4 deselected、1 warning**，14.49 秒。
+- 兩項跳過：Windows 不允許建立 symlink；warning：既有 Starlette／AnyIO 棄用提醒。
+- 新增測試涵蓋 wire request、JSON schema、與 Gemini prompt 對齊、原始回應與用量、
+  假 key 不外洩、HTTP errors、無 retry／redirect、timeout、refusal、incomplete、
+  非文字／多訊息回應、過大／無效 JSON、轉義 key 回顯、來源篡改、原 run 不變、
+  不改欄位值、失敗無 extracted，以及 CLI 與壞 Paddle／Qwen 設定隔離。
+- 首輪測試有兩項 fixture setup 錯誤，大型參數產生過長測試 ID；改用簡短明確 ID
+  後，完整測試通過。此問題未以跳過測試處理。
+- CLI help 已列出 `openai`；`git diff --check` 完成 whitespace 修正。
+
+尚未驗證：**未讀取使用者 API key、未送出任何真實 OpenAI 請求或收據**。
+離線 mock 測試不能證明帳號模型權限、quota、服務端 schema 接受程度、實際費用、
+延遲或欄位準確率。四項原有 integration 本次未執行，沒有新 OCR／GPU／RAG 驗收。
+使用者可直接依中文指南呼叫一份已保存的 OCR；這才是首次 OpenAI live 驗證。
+未 stage、commit、push、切換分支、安裝依賴或下載模型。
