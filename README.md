@@ -28,6 +28,14 @@ manifest 使用 `mode=ocr_only`、`ocr_status=completed`、`status=completed`，
 Use `--extractor llm` to enable Qwen3-4B-Instruct-2507, or `--extractor rules`
 for the existing baseline. Qwen runs in a separate `.venv-llm` environment using
 local pinned weights; it needs no API key. The default remains `rules`.
+
+**Gemini 雲端抽取（明確選用）：**
+`python -m app.cli extract outputs/previous_run --extractor gemini --dry-run`
+可先離線預覽完整 Paddle parsing blocks 與 prompt；拿掉 `--dry-run` 並設定
+`GEMINI_API_KEY` 後，會把 OCR 文字與座標傳至 Google `gemini-3.5-flash-lite`。
+不重跑 OCR、不需要 GPU 或 Qwen，Python 不用 matching rules 補值／改值。
+詳見 [Gemini 中文操作指南](docs/GEMINI_ZH_TW.md)。尚未執行真實 Gemini API 驗收。
+
 `python -m app.cli extract outputs/previous_run --extractor llm` reuses a verified
 OCR run, so changes to the extraction prompt do not require repeating OCR.
 Real Qwen extraction from one handwritten synthetic OCR-text fixture passed on
@@ -52,6 +60,8 @@ Synthetic PNG/JPEG/PDF
          -> rules -> extracted.json
          -> local Qwen3-4B -> basic validation + field review
                                       -> extracted.json + review.json
+         -> explicit Gemini API (all raw parsing blocks) -> format validation + review
+                                      -> extracted.json (no Python value correction)
          -> offline preparation -> optional self-hosted RAGFlow submission
 ```
 
@@ -62,6 +72,7 @@ outside Milestone 1.
 
 `app/paddleocr` owns provider integration; `app/extraction` owns field extraction;
 `app/llm` owns offline Qwen, prompts, basic validation and evidence review;
+`app/gemini` owns explicit cloud replay, prompts, HTTP transport and non-mutating validation;
 `app/schemas` owns validation; `app/rag` owns HTTP integration; `app/pipeline.py`
 orchestrates artifacts. CLI and FastAPI use the same pipeline. No database or
 task queue is required. Processing is synchronous and intended for one document
@@ -208,7 +219,9 @@ The user has authorized local OCR and field extraction on real invoice photos
 they explicitly place in `private_inputs/`. This directory is ignored by Git and
 excluded from Docker build context. Derived artifacts stay in ignored `outputs/`.
 Do not run `rag prepare` or `rag submit` on these private runs; do not upload the
-inputs or derived content to external services or use them as automated fixtures.
+inputs or derived content to external services or use them as automated fixtures,
+except for the explicitly selected Gemini cloud command on documents the user
+chooses to send. Gemini sends OCR blocks, not source images; see the cloud guide.
 This is an exception to the synthetic-only development policy, not production
 acceptance. The same current OCR timeout/runtime limitations still apply.
 
@@ -279,9 +292,9 @@ Failed runs cannot be prepared for RAGFlow. A forced host termination can leave 
   [TIRBIC_SCHEMA.md](docs/TIRBIC_SCHEMA.md). Missing fields are null except
   `buyer_identity`, which uses an empty string. Explicit document titles follow
   the labelling standard: tax_invoice/bill/invoice outrank receipt/customer_copy.
-- No external LLM, Azure request, model fine-tuning, or invented confidence is
-  introduced. The default rules baseline extracts saved OCR text; the explicitly
-  selected LLM strategy uses the locally prepared Qwen model.
+- The default rules baseline and `--extractor llm` remain local (the latter uses
+  Qwen). `extract --extractor gemini` separately enables the Google cloud API.
+  No Azure request, model fine-tuning or invented confidence is introduced.
 - Prose labels, adjacent label/value lines, HTML and Markdown key/value rows,
   and a header row followed by a matching value row are supported. Complex
   merged table rows are skipped. Arbitrary layouts may still produce nulls.

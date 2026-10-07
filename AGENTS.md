@@ -79,3 +79,21 @@ model names, filenames, and machine-readable schema keys verbatim.
 manifest.json，使用 mode=ocr_only 及獨立 ocr_status；無 extracted.json 是正常行為。
 本階段不包含批次、畫框／裁切圖、HTML 預覽、YAML 設定或新的 Cetus 部署。
 private_inputs/ocr_batch10 的使用者資料可在本機檢查；測試 fixtures 維持合成資料。
+
+使用者核准的 Gemini 擴充（2026-10-07）：新增明確選用的
+`extract ... --extractor gemini`，呼叫 Google Gemini API 的
+`gemini-3.5-flash-lite`，重用已核對雜湊的 Paddle parsing blocks。
+這是上述禁止雲端服務的限定例外：只有使用者明確選用該指令時，才傳送 OCR
+區塊文字／座標，不傳圖片、PDF、本機路徑或整份原始 provider metadata。
+實作、文件與 fake tests 不授權 agent 自行上傳真實資料；live test 仍需使用者
+設定 key 並指定要測試的資料。`--dry-run` 完全離線、不需 key。
+不得讀取、輸出、提交 key；只從指定 GEMINI_API_KEY 取得，使用 HTTPS header，
+不寫入 request/manifest/log。Gemini 的 key、模型及連線不影響 parse/rules/Qwen。
+Gemini 只做模型欄位抽取與非修改式格式驗證／證據複核；不得調用 matching 規則，
+不得重新計算並覆寫任何模型欄位（包含 >=1000 flag），不得默默 fallback 或重試。
+保留原始回答與驗證結果；型別不合法或回答截斷不得產生 extracted.json。
+
+使用者另核准測試 `gemini-flash-lite-latest`：可用 GEMINI_MODEL 明確選擇此 alias
+或原本 gemini-3.5-flash-lite，預設維持原模型；不自動 fallback。manifest 記錄
+請求模型及 provider 有提供時的 modelVersion。latest 不是固定版本，不宣稱它等於
+使用者舊程式當時使用的模型。API key 不變，不增加雲端呼叫次數。

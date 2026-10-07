@@ -473,3 +473,105 @@ git diff --check
   準確率或吞吐量，也不是大型合成 invoice 的 opt-in integration 測試。
 
 未重新下載模型、未安裝套件、未執行 Qwen、未提交 Cetus 工作、未修改遠端或 Git 歷史。
+
+## 2026-10-07：Gemini 3.5 Flash-Lite 雲端抽取（模擬驗證）
+
+新增 `extract --extractor gemini`，重用已存 Paddle OCR；選擇
+`gemini-3.5-flash-lite`，固定 Google GenerateContent HTTPS endpoint。
+`--dry-run` 完全離線，不讀 key、不初始化 client，不要求 OCR／Qwen 環境。
+`parse`、rules、Qwen 及 FastAPI 介面不變。沒有新增套件或改動 lock。
+
+實作：
+
+- `app/gemini/config.py`：Gemini 專屬設定，key 不出現在 repr／artifact。
+- `app/gemini/contract.py`：選取原始逐頁 parsing blocks，含 header/footer 與表格；
+  保留順序與座標、增加 block_ref，不傳本機路徑／圖像／其他 provider metadata。
+  版本化 prompt 和 15 欄 structured-output schema；Python 不回填或改寫欄位。
+- `app/gemini/client.py`：單次 HTTP 請求、key 只放 header、禁止 redirects／環境
+  proxy／自動重試；檢查 HTTP、business error、封鎖、STOP、輸出內容及大小。
+- `app/gemini/pipeline.py`：既有 OCR／來源 hash 核對、新目錄輸出、狀態／錯誤遮蔽；
+  保存原始回答、獨立 validation/review，錯誤或截斷無 extracted.json。
+- `app/cli.py`、`.env.example`、`AGENTS.md`、README、中文 demo、schema 文件同步；
+  詳細操作於 `docs/GEMINI_ZH_TW.md`。AGENTS 的雲端例外限使用者明確選用 Gemini。
+
+執行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_gemini.py -q
+.\.venv\Scripts\python.exe -m pytest -m "not integration" -q
+.\.venv\Scripts\python.exe -m app.cli extract outputs/cetus_ti-photo-241_gpu_ocr_112612_hpc-head01 --extractor gemini --dry-run --run-id ti-photo-241_gemini_preview_20261007_032851
+git diff --check
+```
+
+結果：
+
+- 新增 **75 項**測試全數通過（0.87 秒），全部合成資料／fake HTTP，禁止真實網路。
+  覆蓋 all-block 輸入、分頁／表格／header/footer、JSON number／null、精確型別、
+  非法日期／enum／ABN、外幣、缺漏／重複 key、來源疑問、threshold 不回填、
+  API contract、401/403/404/429/5xx、redirect、timeout、不重試、封鎖／截斷、
+  thought 過濾、壞 response、大小限制、key 遮蔽、raw 保存、hash／路徑／覆寫限制、
+  CLI／dry-run，以及與壞 Qwen/Paddle 設定隔離。
+- 完整非 integration：**532 passed、2 skipped、4 deselected、1 warning**，5.27 秒。
+  兩項跳過仍是 Windows 無 symlink 建立權限，warning 為既有 Starlette/AnyIO 棄用。
+  首次新增測試執行因大型參數自動產生過長 pytest ID 而出現 fixture 錯誤；已改成
+  明確短 ID，後續測試全部通過，無應用程式錯誤被忽略。
+- 真實已存 Cetus `ti-photo-241` artifacts 的離線預覽完成，狀態 `prepared`，
+  `network_attempted=false`；新目錄 `outputs/ti-photo-241_gemini_preview_20261007_032851`。
+  這只驗證真實 Paddle 結構／provenance 可以接入，不是 Gemini 辨識結果。
+- `git diff --check` 無 whitespace 錯誤；Windows LF/CRLF 提示不影響測試。
+
+尚未驗證／限制：
+
+- **沒有呼叫真實 Gemini API、沒有讀取／要求使用者提供 key、沒有上傳收據內容。**
+  帳號模型權限、quota、費用與服務端 schema 接受情況須由 opt-in live run 確認；
+  mock tests 不能證明雲端服務可用或欄位準確率。
+- 證據檢查只確認 block_ref／原文引文存在，不判定語意支持。格式通過與 quote 存在
+  均不代表正確，`semantic_accuracy_verified=false`，需與人工 ground truth 評估。
+- 未新增 PP-Structure、批次、GPU 部署、RAGFlow 或 FastAPI 雲端 endpoint。
+  重用 OCR 無需 GPU；Cetus 外網／API 政策未測，建議下載結果後於本機呼叫。
+- 未跑原有四项 integration，未重新執行 OCR 或 Qwen，未安裝／下載模型，
+  未 stage、commit、push、切換分支或改動 Git 歷史。
+
+### 2026-10-07：首次 live HTTP 400 的診斷修正
+
+使用者自行呼叫 `ti-photo-241_gemini_20261007_034509` 後收到 HTTP 400。
+本機紀錄證實失敗在 request 階段，沒有 extracted.json；KEY_PRESENT 只證明
+變數非空。舊 client 丟棄 Google error body，僅保存 http_400，因此無法從該 run
+判定是 key 無效、API 設定或 request schema 問題，不宣稱已修好原始 400。
+
+- 新增 `app/gemini/errors.py`，`client.py` 改用有界錯誤解析：只保存允許清單內的
+  Google status/reason、已知 request 欄位與固定提示，不保存任意 provider message、
+  key、project metadata 或文件內容。分類涵蓋 key 無效／過期／限制／外洩封鎖、
+  服務未啟用、計費、project、schema／參數。不能辨識的仍明確保留未知錯誤。
+- 新增 17 項合成錯誤測試，包括秘密／文件內容回顯、異常 details 型別、壞 JSON、
+  過大 body、狀態保留與分類；Gemini 測試共 **92 passed**（1.31 秒）。
+  完整非 integration 測試 **549 passed、2 skipped、4 deselected、1 warning**
+  （4.21 秒）；跳過與 warning 原因同上，`git diff --check` 通過。
+- 沒有更改模型、prompt、API request schema 或收據結果；沒有讀取 key，沒有由
+  agent 重新送出 API 請求。等待使用者以同一終端明確重跑，取得新的安全診斷。
+
+### 2026-10-07：明確選用 gemini-flash-lite-latest
+
+- 依使用者要求，`GEMINI_MODEL=gemini-flash-lite-latest` 可選擇原本使用的 alias；
+  未設定時維持 gemini-3.5-flash-lite。config 僅允許這兩個名稱，HTTPS host 不可改。
+- client 從選定模型建立 endpoint；pipeline manifest 記錄請求名稱，以及 Google
+  有回傳時的 `generation.model_version`。不更改 prompt／schema、不自動 fallback。
+- 修改 config.py、client.py、pipeline.py、.env.example、AGENTS 與中文指南；新增
+  6 項 synthetic/mock 測試，確認 alias endpoint、環境設定、版本記錄、拒絕非法
+  模型及無 fallback。Gemini 測試共 **98 passed**（1.18 秒）。
+- 未由 agent 讀取 key 或執行 live API；使用者需在已設定 key 的同一 PowerShell
+  執行一次。不能宣稱改用 latest 已修好 HTTP 400；alias 也不是固定歷史模型版本。
+
+### 2026-10-07：latest 仍 HTTP 400，新增不傳文件的連線檢查
+
+使用者提供 `ti-photo-241_gemini_latest_20261007_035157`，其錯誤 artifact 仍為
+http_400／error_body_unavailable。根因尚未確定；不再建議重送相同收據做診斷。
+
+- `app/gemini/errors.py` 新增安全的 content_type、body_bytes、body_format 及
+  read/parse failure 分類，支援 UTF-8 BOM；不保存任意 body 或 header 值。
+- `app/gemini/diagnostics.py` 與 `scripts/check_gemini_environment.py` 提供一次
+  官方 models.get 呼叫，只查選定模型 metadata。不讀文件、不帶 prompt/schema、
+  不生成回答、不自動重試，不印 key／原始 provider 回覆。成功不等於推論驗收。
+- 新增 11 項合成測試，涵蓋 HTML/BOM 診斷、GET URL／無 body、key 基本字元、
+  錯誤遮蔽／無重試／timeout；Gemini 測試 **109 passed**（1.47 秒）。
+- 未由 agent 呼叫 live API，未讀取使用者 key，原 HTTP 400 仍待新診斷結果確認。

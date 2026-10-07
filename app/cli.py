@@ -2,7 +2,7 @@ import argparse
 import sys
 from dataclasses import replace
 
-from app.core.config import Settings
+from app.core.config import ROOT, Settings
 from app.core.errors import PipelineError
 from app.pipeline import InvoicePipeline
 from app.ocr_pipeline import OcrPipeline
@@ -37,12 +37,25 @@ def main(argv: list[str] | None = None) -> int:
     extract = commands.add_parser("extract", help="Re-extract a previous run without rerunning OCR")
     extract.add_argument("directory")
     extract.add_argument("--run-id")
-    extract.add_argument("--extractor", choices=("rules", "llm"))
+    extract.add_argument("--extractor", choices=("rules", "llm", "gemini"))
+    extract.add_argument("--dry-run", action="store_true", help="Gemini only: save request locally without contacting Google")
     rag = commands.add_parser("rag").add_subparsers(dest="action", required=True)
     for action in ("prepare", "submit"):
         rag.add_parser(action).add_argument("directory")
     args = parser.parse_args(argv)
     try:
+        if getattr(args, "dry_run", False) and args.extractor != "gemini":
+            raise PipelineError("--dry-run requires --extractor gemini")
+        if args.command == "extract" and args.extractor == "gemini":
+            from app.gemini.config import GeminiSettings
+            from app.gemini.pipeline import GeminiPipeline
+            settings = GeminiSettings.from_env(require_key=not args.dry_run)
+            result = GeminiPipeline(ROOT, settings).reextract(args.directory, args.run_id, dry_run=args.dry_run)
+            print(f"Gemini：{result['status']}；run_id：{result['run_id']}")
+            print("僅準備本機請求，未連線。" if args.dry_run else "已送出 OCR 區塊至 Google；格式通過不代表內容正確，請查看 review.json。")
+            for name, path in result["artifacts"].items():
+                print(f"{name}：{path}")
+            return 0
         settings = Settings.from_ocr_env() if args.command == "parse" else Settings.from_env()
         if getattr(args, "extractor", None):
             settings = replace(settings, extractor=args.extractor)
@@ -70,7 +83,10 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 client.close()
         return 0
-    except (PipelineError, OSError):
+    except (PipelineError, OSError) as exc:
+        if args.command == "extract" and args.extractor == "gemini" and isinstance(exc, PipelineError):
+            print(str(exc), file=sys.stderr)
+            return 1
         print("Operation failed; inspect local artifacts and documented prerequisites", file=sys.stderr)
         return 1
 
