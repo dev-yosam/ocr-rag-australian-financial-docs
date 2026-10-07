@@ -29,6 +29,13 @@ Use `--extractor llm` to enable Qwen3-4B-Instruct-2507, or `--extractor rules`
 for the existing baseline. Qwen runs in a separate `.venv-llm` environment using
 local pinned weights; it needs no API key. The default remains `rules`.
 
+**GPT 雲端抽取（明確選用）：** 設定 `OPENAI_API_KEY` 後執行
+`python -m app.cli extract outputs/previous_run --extractor openai`。
+預設 `gpt-6-luna`，可用 `OPENAI_MODEL` 切換。直接送出已驗證的 OCR 區塊至 OpenAI，
+不重跑 OCR、不需 GPU／Qwen、不需 dry run。使用 Responses API Structured Outputs，
+與 Gemini 共用區塊 prompt、15 欄 schema 及不改值的驗證；Qwen 仍沿用自己的 contract。
+實際 API 連線與收據準確率尚待使用者測試。詳見 [GPT 中文操作指南](docs/OPENAI_ZH_TW.md)。
+
 **Gemini 雲端抽取（明確選用）：**
 `python -m app.cli extract outputs/previous_run --extractor gemini --dry-run`
 可先離線預覽完整 Paddle parsing blocks 與 prompt；拿掉 `--dry-run` 並設定
@@ -62,6 +69,8 @@ Synthetic PNG/JPEG/PDF
                                       -> extracted.json + review.json
          -> explicit Gemini API (all raw parsing blocks) -> format validation + review
                                       -> extracted.json (no Python value correction)
+         -> explicit OpenAI GPT API (same raw parsing blocks / contract as Gemini)
+                                      -> extracted.json + review.json + token usage
          -> offline preparation -> optional self-hosted RAGFlow submission
 ```
 
@@ -72,7 +81,8 @@ outside Milestone 1.
 
 `app/paddleocr` owns provider integration; `app/extraction` owns field extraction;
 `app/llm` owns offline Qwen, prompts, basic validation and evidence review;
-`app/gemini` owns explicit cloud replay, prompts, HTTP transport and non-mutating validation;
+`app/gemini` and `app/openai_extraction` own explicit provider requests and cloud replay;
+`app/extraction/block_contract.py` owns their shared prompt, schema and non-mutating validation;
 `app/schemas` owns validation; `app/rag` owns HTTP integration; `app/pipeline.py`
 orchestrates artifacts. CLI and FastAPI use the same pipeline. No database or
 task queue is required. Processing is synchronous and intended for one document
