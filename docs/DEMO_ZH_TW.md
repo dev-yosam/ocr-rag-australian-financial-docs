@@ -1,12 +1,71 @@
 # Windows 本機示範操作指南
 
-適用於這台已經準備好 `.venv`、`.venv-llm`、OCR 與 Qwen 模型的 Windows 筆電。
+純 OCR 適用於已準備好 `.venv` 與 OCR 模型的 Windows 筆電；只有後面的 Qwen
+完整流程需要額外的 `.venv-llm` 與 Qwen 模型。
 所有程式指令都在專案根目錄的 **PowerShell** 執行。每一行都是獨立指令；不要複製
 終端顯示的 `PS C:\...>` 或 `>>` 提示字。
 
 目前 CPU 的完整 Qwen 推論可能非常慢，並耗用大量記憶體。正式示範建議先準備結果，
 現場依序展示圖片、OCR、欄位與待確認事項。若現場重新跑模型，須清楚區分已完成和
 仍在運算的部分；不能保證短時間完成。這份指南不會自動執行模型或下載套件。
+
+## 0. 只看 OCR，不執行 Qwen 或 Python rules
+
+使用 `parse` 指令，不使用 `process --extractor rules`。每次只指定一份 PNG、JPG、
+JPEG 或 PDF；多頁 PDF 仍是一份文件。這一步不處理整個資料夾，也沒有批次指令。
+
+```powershell
+Set-Location "C:\Users\sam84\Documents\Codex\2026-09-11\new-chat\ocr-rag-australian-financial-docs"
+$env:PADDLEOCR_DEVICE = "cpu"
+$env:PADDLEOCR_TIMEOUT_SECONDS = "3600"
+$env:OMP_NUM_THREADS = "1"
+$env:PYTHONIOENCODING = "utf-8"
+$ocrRun = "ocr_" + (Get-Date -Format "yyyyMMdd_HHmmss")
+.\.venv\Scripts\python.exe -m app.cli parse "samples/tax_invoices/sample_invoice.png" --run-id $ocrRun
+```
+
+最後一行使用專案內的合成樣本；要換成自己的文件，將來源改為
+`private_inputs/ocr_batch10/<你的檔名>`。`3600` 是 OCR 子程序等待上限，
+不是保證一小時內成功。原圖不會修改；每次重跑都重新產生 `$ocrRun`。
+
+只需要 Paddle 的執行環境及本機 OCR 模型。`parse` 忽略 `INVOICE_EXTRACTOR`、
+`LLM_*` 和 RAGFlow 環境變數；不檢查 Qwen 模型，不啟動抽取器。
+文件處理不下載模型、不連線外部服務。需要準備 OCR 模型時，另外明確執行
+`scripts/prepare_models.py`，不可把模型準備當成 OCR 已成功。
+
+正常完成後，在同一個終端開啟本次目錄：
+
+```powershell
+Invoke-Item -LiteralPath (Join-Path "outputs" $ocrRun)
+```
+
+成功的目錄只有三個主要檔案：
+
+| 檔案 | 用途 |
+| --- | --- |
+| `raw.json` | Provider 原始逐頁 JSON，含版面與辨識結果；不回寫欄位值。 |
+| `parsed.md` | 正規化換行與非語意空白後的 Markdown，保留 HTML 表格、內部空白與頁面邊界。 |
+| `manifest.json` | `schema_version=ocr-run-v1`、來源與結果雜湊、版本、裝置、耗時及 OCR 狀態。 |
+
+manifest 的 `mode=ocr_only`、`status=completed`、`ocr_status=completed` 表示解析
+流程正常完成；`extraction.strategy=none`、`extraction.status=not_requested` 明確
+表示沒有要求欄位抽取。`semantic_accuracy_verified=false`，不宣稱文字或表格正確。
+沒有 `extracted.json`、`review.json`、`llm_request.json` 或 `llm_response.json` 是正常的。
+`elapsed_seconds` 包含 parser 初始化、OCR 與結果處理，不是單純模型推論時間。
+
+失敗時 `status` 與 `ocr_status` 都是 `failed`，已取得的逐頁 raw 會保留；
+若連原始頁面結果都還沒取得，目錄可能只有 manifest。空結果或頁數不一致不會
+標示完成。路徑／格式等前置檢查失敗時，可能尚未建立 output 目錄。
+
+之後仍可用 `python -m app.cli extract outputs/<run_id> --extractor llm` 在新目錄
+重新抽取欄位；只有執行這個後續命令時才需要 LLM 環境。不要修改已保存的 OCR 檔案，
+否則重用時的雜湊檢查會拒絕它。
+
+Cetus 在 PBS 分配的 GPU 工作內，用 `.venv-gpu/bin/python` 執行同一個 `parse`
+指令，並設定 `PADDLEOCR_DEVICE=gpu:0`。不要直接套用 `scripts/cetus_llm.pbs`，
+該腳本會啟動 Qwen。這次尚未提供純 OCR PBS 腳本或十份文件的批次功能。
+
+以下第 1 至 9 節保留完整 OCR＋Qwen 的示範方式，與本節的純 OCR 模式不同。
 
 ## 1. 開啟專案與終端
 
@@ -130,7 +189,7 @@ Python 仍依總額計算既有 `>=1000` 旗標；其他缺值不猜補。
 
 `--extractor llm` 很重要。省略時依環境設定選擇，預設是 `rules`。
 `--extractor rules` 是完整 OCR 加上舊規則抽取，不是 Qwen，也不是純 OCR 指令。
-目前 CLI 沒有獨立的 `ocr-only` 子命令。
+只需要 OCR 時改用本指南第 0 節的 `parse` 子命令。
 
 每次重跑都重新產生 `$demoRun`。沿用既有 run ID 會報錯，不會覆寫舊結果。
 正常執行時終端可能長時間沒有輸出；worker 不會把收據內容或半成品答案列印到 logs。
