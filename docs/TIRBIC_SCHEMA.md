@@ -112,3 +112,13 @@ Python validates all values, source quotations, dates and monetary types and
 recomputes the threshold flag. It does not run the rule extractor as a fallback.
 No new confidence score or silent legacy ground-truth conversion is introduced.
 See [local LLM usage](LLM.md) for evidence artifacts, CPU/GPU setup and limitations.
+
+## Gemini cloud extraction (2026-10-07)
+
+`extract --extractor gemini` uses the same 15 fields, but the LLM receives all
+Paddle parsing blocks including headers/footers, rather than just Markdown.
+This strategy does not use the rules baseline's matching restrictions. Python
+checks basic types/formats and quote presence without filling or changing values.
+Unlike the Qwen implementation above, it does NOT recompute the >=1000 flag:
+inconsistency is retained and reported in review.json. Quotes are not proof of
+semantic support. See [Gemini usage](GEMINI_ZH_TW.md) for prompt, privacy and limits.

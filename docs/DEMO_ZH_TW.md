@@ -1,5 +1,9 @@
 # Windows 本機示範操作指南
 
+若要使用 **Gemini 3.5 Flash-Lite** 重用現有 CPU／Cetus OCR 結果，請看
+[Gemini 中文操作指南](GEMINI_ZH_TW.md)。該模式需明確選用與 API key，
+會送出 OCR 文字／座標至 Google；以下純 OCR／Qwen 步驟仍在本機執行。
+
 純 OCR 適用於已準備好 `.venv` 與 OCR 模型的 Windows 筆電；只有後面的 Qwen
 完整流程需要額外的 `.venv-llm` 與 Qwen 模型。
 所有程式指令都在專案根目錄的 **PowerShell** 執行。每一行都是獨立指令；不要複製
