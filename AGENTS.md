@@ -1,5 +1,25 @@
 # Engineering rules
 
+User documentation privacy preference (2026-10-11): never include the user's
+actual university/HPC account ID in README files, manuals, or shared documentation.
+Use YOUR_HPC_ID placeholders, $HOME, or the current login name as appropriate.
+Commands supplied directly in chat may include the user's ID for convenience.
+
+User-approved Cetus OCR batch extension (2026-10-11): provide a single PBS job
+that sequentially processes user-selected documents using only the full OCR
+pipeline. The user requested upload instructions for their specified local
+OneDrive/Desktop/138 folder and will perform SSH/SCP/PBS operations themselves.
+It is authorized to inspect that directory's file inventory for this task.
+Preserve subfolders, keep uploaded inputs under private_inputs, and keep batch
+state/results under ignored outputs. Support resuming verified completed files
+without changing source documents. No LLM/API/RAG calls, automatic model download,
+automatic job resubmission or Git changes. Use synthetic fixtures for tests.
+
+User-approved batch follow-up: default the PBS per-document timeout to 300 seconds.
+Provide explicit resume-with-skip-failed behavior to prioritize unprocessed files,
+preserving verified successes, failed statuses and historical attempt settings.
+The user uploads updated scripts and submits the continuation themselves.
+
 User-approved OpenAI extension (2026-10-07): add explicit
 `extract ... --extractor openai` using the OpenAI Responses API. The user will
 set OPENAI_API_KEY and run live tests themselves; no mandatory dry run.

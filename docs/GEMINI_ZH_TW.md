@@ -167,7 +167,7 @@ HTTP 200 但 JSON 壞掉／安全封鎖／MAX_TOKENS 截斷時，仍保存取得
 在允許的 shell／工作環境中，已有 `.venv-gpu` 可以執行相同 extract 指令：
 
 ```bash
-cd /shared/homes/u175668/ocr-rag-australian-financial-docs
+cd "$HOME/ocr-rag-australian-financial-docs"
 read -r -s -p 'Gemini API key: ' GEMINI_API_KEY
 export GEMINI_API_KEY
 printf '\n'

@@ -24,6 +24,12 @@ manifest 使用 `mode=ocr_only`、`ocr_status=completed`、`status=completed`，
 表示 OCR 流程完成，不代表文字已比對 ground truth。這個模式沒有 15 欄輸出。
 詳見[中文操作指南的純 OCR 步驟](docs/DEMO_ZH_TW.md#0-只看-ocr-不執行-qwen-或-python-rules)。
 
+**Cetus 多文件純 OCR：** [上傳與單一 PBS 任務操作指南](docs/CETUS_OCR_BATCH_ZH_TW.md)。
+`scripts/cetus_ocr_batch.pbs` 在一個 GPU 任務內，使用 `scripts/run_ocr_batch.py`
+逐份處理子資料夾中的 PDF／PNG／JPEG；不執行 rules／LLM。每份保留三個 OCR 檔案，
+批次摘要位於 `outputs/batches/<batch_id>/summary.json`。重新提交同一批次並明確 resume
+時，跳過雜湊驗證通過的成功結果，重試未完成／失敗文件。仍受 queue walltime 限制。
+
 **Local LLM extension:** [Qwen setup and usage on Windows CPU / Cetus GPU](docs/LLM.md).
 Use `--extractor llm` to enable Qwen3-4B-Instruct-2507, or `--extractor rules`
 for the existing baseline. Qwen runs in a separate `.venv-llm` environment using
