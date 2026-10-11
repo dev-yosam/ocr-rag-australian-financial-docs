@@ -1,0 +1,70 @@
+#!/bin/bash
+#PBS -N ocr_batch
+#PBS -q small_gpuq
+#PBS -l select=1:ngpus=1:ncpus=4:mem=32gb
+#PBS -l walltime=01:15:00
+#PBS -j oe
+
+# One PBS job, one GPU, sequential documents. Submit from repository root.
+# Override walltime only after checking the queue's actual limits.
+set -euo pipefail
+SECONDS=0
+cd "${PBS_O_WORKDIR:?Submit from the repository root}"
+test -f pyproject.toml
+test -f .models/manifest.json
+test -x .venv-gpu/bin/python
+: "${INPUT_DIR:?Set INPUT_DIR to a directory under private_inputs}"
+: "${BATCH_ID:?Set a batch ID; use the same ID to resume}"
+export PADDLEOCR_DEVICE=gpu:0
+export PADDLEOCR_TIMEOUT_SECONDS="${PADDLEOCR_TIMEOUT_SECONDS:-300}"
+if [[ ! "$PADDLEOCR_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+    echo 'PADDLEOCR_TIMEOUT_SECONDS must be an integer from 1 to 3600.'
+    exit 1
+fi
+export OMP_NUM_THREADS=1
+export PYTHONIOENCODING=utf-8
+export PYTHONUNBUFFERED=1
+# CUDA_VISIBLE_DEVICES belongs to PBS: do not override it.
+mkdir -p .runtime/jobs
+job_token="${PBS_JOBID//[^A-Za-z0-9_-]/_}"
+exec > ".runtime/jobs/ocr_batch_${job_token}.log" 2>&1
+hostname
+nvidia-smi
+
+# The existing environment checker reads LLM settings; use the OCR-only settings
+# here instead, so this job never needs an LLM environment or API key.
+.venv-gpu/bin/python - <<'PY'
+import sys
+from app.core.config import ROOT, Settings, local_runtime
+from app.paddleocr.worker import deny_network, model_directories
+from app.paddleocr.runtime import check_packages, activate_device
+local_runtime(ROOT)
+sys.addaudithook(deny_network)
+device = Settings.from_ocr_env().device
+print(check_packages(device), flush=True)
+print('Device computation passed:', activate_device(device), flush=True)
+model_directories(ROOT)
+print('Local model checksums passed', flush=True)
+PY
+
+# Read the effective allocation (including any qsub -l override), subtract actual
+# preflight time and a margin; the runner reserves each file's timeout + 60 sec.
+walltime=$(qstat -f "$PBS_JOBID" | awk '$1 == "Resource_List.walltime" {print $3}')
+if [[ ! "$walltime" =~ ^([0-9]+):([0-9]{2}):([0-9]{2})$ ]]; then
+    echo 'Cannot read allocated walltime; no documents started.'
+    exit 1
+fi
+budget=$((10#${BASH_REMATCH[1]} * 3600 + 10#${BASH_REMATCH[2]} * 60 + 10#${BASH_REMATCH[3]} - SECONDS - 60))
+if (( budget <= PADDLEOCR_TIMEOUT_SECONDS + 60 )); then
+    echo 'Allocation too short for per-file timeout; request longer walltime or explicitly reduce timeout.'
+    exit 1
+fi
+args=(--input "$INPUT_DIR" --batch-id "$BATCH_ID" --time-budget-seconds "$budget")
+if [[ "${RESUME:-0}" == "1" ]]; then
+    args+=(--resume)
+fi
+if [[ "${SKIP_FAILED:-0}" == "1" ]]; then
+    args+=(--skip-failed)
+fi
+echo "Per-document timeout: ${PADDLEOCR_TIMEOUT_SECONDS}s; resume=${RESUME:-0}; skip_failed=${SKIP_FAILED:-0}"
+.venv-gpu/bin/python "${BATCH_RUNNER:-scripts/run_ocr_batch.py}" "${args[@]}"

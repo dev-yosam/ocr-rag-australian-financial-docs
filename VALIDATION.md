@@ -1,5 +1,45 @@
 # Implementation and validation record
 
+## 2026-10-11：批次 300 秒上限與未完成文件優先
+
+- PBS 批次預設單文件 timeout 改為 300 秒，仍允許明確覆寫；單文件 CLI 的預設不變。
+- 新增 `--resume --skip-failed`／PBS `RESUME=1,SKIP_FAILED=1`，跳過已驗證成功及
+  先前失敗文件，保留失敗與歷次嘗試；未完成文件繼續，新失敗不阻止後續文件。
+  一般 resume 仍可重試失敗文件。全部待辦處理後若有失敗，狀態仍為 completed_with_failures。
+- 測試涵蓋混合成功／失敗／待辦、保留歷史、改用 300 秒、稍後重試失敗、
+  中斷恢復與成功 artifacts 被修改後重跑、拒絕未搭配 resume 的 skip-failed。
+- 完整非 integration 測試：**625 passed、2 skipped、4 deselected、1 warning**，16.62 秒。
+  skips 為既有 Windows symlink 權限，warning 為 Starlette／AnyIO 棄用。
+  Bash 語法、CLI help 和 git diff --check 通過；Markdown 掃描未發現實際學校帳號 ID。
+- 沒有由 agent 上傳或提交 PBS；300 秒下的真實 GPU 批次仍待使用者續跑驗證。
+
+## 2026-10-11：Cetus 單任務批次純 OCR
+
+- 新增 `scripts/cetus_ocr_batch.pbs`、`scripts/run_ocr_batch.py` 與中文指南
+  `docs/CETUS_OCR_BATCH_ZH_TW.md`；使用者自行 SSH/SCP/qsub，沒有由 agent 上傳資料或送出任務。
+- 一個 PBS job／一個 GPU allocation 依序處理子資料夾的 PDF、PNG、JPEG；呼叫既有
+  OcrPipeline，每份仍是完整 DocLayoutV3＋VL-1.6，不執行 rules、Qwen、Gemini、GPT 或 RAG。
+- 每份保留三個 OCR artifacts，批次 summary 記錄檔案雜湊、run ID、狀態與耗時。
+  單份失敗繼續；resume 驗證成功檔案的 artifacts，跳過成功並重試未完成文件，保留舊嘗試。
+  OS lock 防止同批次並行寫入；被終止後可依文件 manifest 恢復。
+- PBS 腳本在 compute node 檢查 GPU 及模型雜湊，遵守 CUDA_VISIBLE_DEVICES，不自動下載模型。
+  預設資源為 small_gpuq／1 GPU／4 CPU／32 GB／01:15 walltime；較長 walltime 要先核對
+  queue 限制，不宣稱現有配置能一次跑完整個資料夾。剩餘時間不足單份 timeout＋餘裕時，
+  標為 paused_time_budget；不會自動再送 job。
+- 本機只清點使用者指定的「138」資料夾：326 個 PDF、六個子資料夾、約 275.4 MiB；
+  無空檔、無超過 20 MiB 的文件，最大約 2.5 MiB。未逐份解析 PDF 或驗證內容／頁數。
+- 12 項新 synthetic／fake-parser 批次測試通過。完整
+  `.venv/Scripts/python.exe -m pytest -m "not integration" -q`：
+  **622 passed、2 skipped、4 deselected、1 warning**，13.82 秒。
+  跳過原因為 Windows symlink 權限，warning 為既有 Starlette／AnyIO 棄用。
+- Git for Windows Bash `-n scripts/cetus_ocr_batch.pbs` 通過；CLI `--help` 可執行。
+  `git diff --check` 無 whitespace 錯誤。沒有新 PBS live／GPU／模型執行驗證。
+- 新腳本的上傳副本可放在 Cetus `.runtime/ocr-batch/`，不需先 commit/push，
+  也不覆蓋日後 Git 追蹤的 scripts。真實 queue 上限與 NFS lock 行為仍需 Cetus 實測。
+- 本次沿用既有「每份重新啟動 worker／載入模型」模式，沒有模型常駐加速；
+  續跑時請保留相同程式／依賴版本，改版比較應使用新 batch ID。
+- 開發時目前為乾淨 main，僅新增上述功能／文件與測試；沒有切分支、stage、commit 或 push。
+
 ## Current outcome
 
 The local prototype now uses PaddlePaddle GPU inference (`paddlepaddle-gpu`
