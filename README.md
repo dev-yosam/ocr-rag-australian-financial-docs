@@ -1,5 +1,9 @@
 # Australian financial document pipeline — Milestone 1
 
+LLM 金額格式更新（2026-10-11）：Qwen／Gemini／GPT 的已知 `total_cost`、`gst`
+統一輸出無貨幣符號的兩位小數字串，例如 `"51.10"`、`"0.00"`；缺值原因不變，
+`taxable_sale_extent` 仍是 0–1 數值。舊結果保留，使用新 run 重跑欄位抽取。
+
 Local-first processing of a **synthetic Australian tax invoice** using the full
 PaddleOCR-VL-1.6 pipeline, selectable rule-based or local Qwen extraction, Pydantic validation,
 and a RAGFlow HTTP integration boundary.
@@ -13,6 +17,10 @@ unverified. See `VALIDATION.md`.
 The output now follows the provisional **15-field TIRBIC schema**, version
 `tirbic-15-v2`. This is a breaking change from the previous 14-field schema: `nature_of_expense` is replaced by
 `supply_type` and `expense_category`.
+The above is the **rules baseline**. Qwen, Gemini and GPT now share **tirbic-15-v3**:
+15 required fields, exact missing-reason strings, absent buyer `""`, and taxable_sale_extent
+in **0..1**. Python never rewrites model values, including the >=1000 flag.
+Shared definitions/prompt: `app/schemas/tirbic_llm.py`. Old runs remain unchanged.
 See [field definitions and migration](docs/TIRBIC_SCHEMA.md). Matching tests use
 synthetic data; no new real OCR accuracy claim follows from this schema update.
 
@@ -39,7 +47,7 @@ local pinned weights; it needs no API key. The default remains `rules`.
 `python -m app.cli extract outputs/previous_run --extractor openai`。
 預設 `gpt-6-luna`，可用 `OPENAI_MODEL` 切換。直接送出已驗證的 OCR 區塊至 OpenAI，
 不重跑 OCR、不需 GPU／Qwen、不需 dry run。使用 Responses API Structured Outputs，
-與 Gemini 共用區塊 prompt、15 欄 schema 及不改值的驗證；Qwen 仍沿用自己的 contract。
+與 Gemini 共用區塊 prompt；三條 LLM 都使用統一 v3 欄位定義與 schema，Qwen 輸入仍為 Markdown。
 實際 API 連線與收據準確率尚待使用者測試。詳見 [GPT 中文操作指南](docs/OPENAI_ZH_TW.md)。
 
 **Gemini 雲端抽取（明確選用）：**
@@ -285,7 +293,7 @@ For a completed run:
 outputs/<run-id>/
   raw.json         # untouched provider JSON values, in page order
   parsed.md        # normalized Markdown, with explicit page boundaries
-  extracted.json   # 15 欄結果（含 null）；LLM 模式仍須查看 review
+  extracted.json   # 15 欄；rules v2 可含 null，LLM v3 使用缺值原因；仍須查看 review
   review.json      # LLM 模式的逐欄確認事項、缺值及 requires_review
   manifest.json    # source/artifact SHA-256, versions, status/failure stage
   ragflow.json     # created by rag prepare/submit

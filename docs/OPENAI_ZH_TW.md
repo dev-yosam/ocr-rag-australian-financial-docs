@@ -1,5 +1,11 @@
 # GPT 欄位抽取：直接使用已保存的 OCR 結果
 
+金額格式更新（2026-10-11）：已知 `total_cost`、`gst` 統一為兩位小數字串，
+例如 `"51.10"`，不含貨幣符號或千分位。缺值原因不變，`taxable_sale_extent`
+仍是 0–1 數值。共用 prompt 與 schema 位於 `app/schemas/tirbic_llm.py`；
+模型格式不符時驗證失敗，Python 不偷偷補零或四捨五入。既有結果不修改，
+請以新 run 重用 OCR 再抽取；本次 prompt 版本尾碼為 `blocks-v2`。
+
 流程：PP-DocLayoutV3 → PaddleOCR-VL-1.6 → 已保存的 OCR 區塊 → OpenAI GPT →
 15 欄 JSON 與人工確認事項。這次只執行最後的 API 抽取，不重新跑 OCR。
 
@@ -92,8 +98,8 @@ cached/reasoning tokens。不把 token 用量直接宣稱為帳單美元金額�
 
 ## 4. Prompt 與 Python 的角色
 
-- `app/extraction/block_contract.py`：GPT 與 Gemini 共用的英文 SYSTEM prompt、15 欄
-  schema、OCR 區塊整理、非改值驗證。既有 Gemini prompt 文字不變。
+- `app/schemas/tirbic_llm.py`：Qwen／Gemini／GPT 共用 v3 欄位定義、英文 FIELD_INSTRUCTIONS、invoice schema 與型別驗證。
+- `app/extraction/block_contract.py`：GPT 與 Gemini 的 SYSTEM 外層提示、OCR 區塊整理與來源複核。
 - `app/openai_extraction/contract.py`：包裝成 Responses API 請求，strict JSON Schema、
   `store=false`、不開啟任何工具、預設 reasoning effort `none`。
 - `app/openai_extraction/client.py`：HTTPS、回應解析、用量與安全錯誤分類。
@@ -106,7 +112,9 @@ Python 不用舊 matching rules 補值，不重算／替換 >=1000 flag。格式
 標記 failed，不產生 extracted.json。來源引文檢查僅確認引用存在，不能證明語意正確。
 `semantic_accuracy_verified` 維持 false，需與 ground truth 比對。
 
-Qwen 仍使用自己原有的 Markdown prompt／contract；本次只對齊 GPT 與 Gemini。
+三條 LLM 已統一使用 tirbic-15-v3。缺值直接輸出三種原因字串，buyer 缺失為空字串，
+taxable_sale_extent 使用 0–1（100% = 1.0）。Qwen 仍讀 Markdown，GPT／Gemini 仍讀 OCR
+blocks，因此輸入包裝及引文格式不同；欄位定義一致。舊輸出不改寫，新 run 自動使用 v3。
 目前不能把 Qwen 與這兩個 cloud pipeline 的差異全歸因於模型能力。
 
 ## 5. 設定與錯誤

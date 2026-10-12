@@ -3,8 +3,9 @@
 This adds a second extraction strategy. PaddleOCR still runs the complete
 PP-DocLayoutV3 + PaddleOCR-VL-1.6-0.9B pipeline. Qwen reads its normalized Markdown
 and assigns the 15 TIRBIC fields. It does not receive the original image or raw
-bounding boxes. Python checks the output contract and calculates the existing
-`total_cost >= 1000` flag. There is no cloud LLM API, key, training or RAG change.
+bounding boxes. Python validates the shared `tirbic-15-v3` contract without
+recalculating any model values, including the `total_cost >= 1000` flag.
+Qwen remains offline; this schema update does not introduce cloud calls.
 
 欄位配對由 Qwen 負責，Python 保留基本格式驗證與逐欄來源檢查。來源證據有疑問時，
 保留格式合法的欄位值，另寫入 `review.json` 供人工確認；不再僅因引文不符就擋下
@@ -241,9 +242,11 @@ the new LLM environment; these instructions cover native Windows and PBS Linux.
 `extracted.json` 與 `review.json`。這些私有文件 artifacts 均由 Git 忽略，並排除於
 Docker build context；manifest 記錄相應雜湊。請勿把真實收據的完整 artifacts 貼入共用 logs。
 
-Qwen 負責輸出 15 個欄位及來源引文。`extracted.json` 維持 `tirbic-15-v2` 的 15 欄格式，
-金額使用 Decimal-aware JSON number；未知欄位使用 `null`，`buyer_identity` 延用空字串。
-Python 仍依 `total_cost` 計算既有的 `>=1000` 旗標，不計算補入缺少的總額或 GST。
+Qwen 負責輸出 15 個欄位及來源引文。`extracted.json` 使用與 Gemini／GPT 相同的
+`tirbic-15-v3`：已知 total_cost／gst 是無貨幣符號的兩位小數 JSON 字串（例如 `"51.10"`），缺值是 `not_found`、`file_quality_insufficient`
+或 `cannot_be_determined`；找不到 buyer_identity 時維持空字串。taxable_sale_extent
+改用 0–1（100% = 1.0）。Python 不重算 >=1000 旗標，不補值或自動換算舊百分比。
+模型回應 envelope 必須包含 invoice、evidence、currency；詳見 [統一契約](TIRBIC_SCHEMA.md)。
 
 基本驗證與來源確認分開處理：
 
@@ -252,7 +255,8 @@ Python 仍依 `total_cost` 計算既有的 `>=1000` 旗標，不計算補入缺�
 | 非法 JSON、欄位缺漏／多餘、型別不符、非法日期或 enum、NaN／Infinity、非 AUD | 執行失敗，不產生看似成功的 `extracted.json` |
 | 缺少來源證據、引文找不到、引用內容無法支持欄位值 | 保留格式合法的欄位值，在 `review.json` 列出中文確認事項 |
 | 引文僅有空白或換行差異 | 折疊為單一空格後比對；保留分隔，不把原本分離的數字接起來 |
-| 模型輸出 `null` 或未知 buyer 空字串 | 保留缺值並記錄缺值欄位，不用舊規則或另一個模型猜補 |
+| 模型輸出三種缺值原因或 buyer 空字串 | 保留原值；缺值原因列入 review，不能僅憑 OCR 判定原圖狀態 |
+| 模型輸出 invoice 欄位 `null` 或舊版百分比 100 | v3 格式驗證失敗，不自動轉換 |
 
 例如，模型將商品分類為 `food`，卻引用文件中不存在的 `food` 作為原文時，分類值可以
 保留，但會標記來源有疑問，讓人檢查奶茶等實際商品文字是否支持此分類。引文通過也

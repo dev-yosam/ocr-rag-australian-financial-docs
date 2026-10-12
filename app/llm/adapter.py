@@ -9,20 +9,20 @@ from app.core.errors import ExtractionError
 from app.core.files import contained, read_json, sha256, write_json
 from app.llm.contract import PROMPT_VERSION, assess_response, build_messages
 from app.paddleocr.adapter import execute_worker
-from app.schemas.invoice import TaxInvoice
+from app.schemas.tirbic_llm import TirbicLlmInvoice
 
 
 class LocalLlmExtractor:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    def extract(self, markdown: str) -> TaxInvoice:
+    def extract(self, markdown: str) -> TirbicLlmInvoice:
         temporary = contained(self.settings.root, ".runtime/llm", must_exist=False)
         temporary.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=temporary) as directory:
             return self.extract_to(markdown, Path(directory))
 
-    def extract_to(self, markdown: str, output: Path) -> TaxInvoice:
+    def extract_to(self, markdown: str, output: Path) -> TirbicLlmInvoice:
         root = self.settings.root.resolve()
         if not output.resolve().is_relative_to(root):
             raise ExtractionError("LLM artifacts must remain in the repository")

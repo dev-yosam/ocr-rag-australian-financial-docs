@@ -9,6 +9,8 @@ from app.core.errors import InputError, PipelineError
 from app.core.files import contained, new_run, read_json, sha256, write_json
 from app.extraction.invoice import InvoiceExtractor, RuleInvoiceExtractor
 from app.schemas.invoice import SCHEMA_VERSION, TaxInvoice
+from app.schemas.tirbic_llm import SCHEMA_VERSION as LLM_SCHEMA_VERSION, TirbicLlmInvoice
+from app.llm.contract import PROMPT_VERSION as LLM_PROMPT_VERSION
 from app.paddleocr.adapter import PaddleParser
 from app.paddleocr.normalize import normalize_markdown
 from app.paddleocr.types import DocumentParser, PartialParseError
@@ -24,7 +26,7 @@ class InvoicePipeline:
         self.parser = parser or PaddleParser(settings)
         self.extractor = extractor or (LocalLlmExtractor(settings) if settings.extractor == "llm" else RuleInvoiceExtractor())
 
-    def _extract(self, markdown: str, output: Path) -> TaxInvoice:
+    def _extract(self, markdown: str, output: Path) -> TaxInvoice | TirbicLlmInvoice:
         if isinstance(self.extractor, LocalLlmExtractor):
             return self.extractor.extract_to(markdown, output)
         return self.extractor.extract(markdown)
@@ -36,10 +38,11 @@ class InvoicePipeline:
                 manifest["artifacts"][name] = sha256(artifact)
         write_json(output / "manifest.json", manifest)
 
-    def _complete(self, output: Path, invoice: TaxInvoice, manifest: dict) -> None:
+    def _complete(self, output: Path, invoice: TaxInvoice | TirbicLlmInvoice, manifest: dict) -> None:
         """Persist format-valid values and make review requirements explicit."""
         manifest["status"] = "completed"
         if isinstance(self.extractor, LocalLlmExtractor):
+            manifest["prompt_version"] = LLM_PROMPT_VERSION
             review = read_json(output / "review.json")
             manifest["review"] = {
                 "requires_review": review["requires_review"],
@@ -56,7 +59,7 @@ class InvoicePipeline:
         write_json(output / "extracted.json", invoice.model_dump(mode="python"))
 
     @staticmethod
-    def _result(run_id: str, invoice: TaxInvoice, manifest: dict) -> dict:
+    def _result(run_id: str, invoice: TaxInvoice | TirbicLlmInvoice, manifest: dict) -> dict:
         return {
             "run_id": run_id, "invoice": invoice.model_dump(mode="python"),
             "status": manifest["status"],
@@ -72,7 +75,7 @@ class InvoicePipeline:
         run_id = run_id or uuid.uuid4().hex
         output = new_run(root, run_id)
         manifest = {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": LLM_SCHEMA_VERSION if isinstance(self.extractor, LocalLlmExtractor) else SCHEMA_VERSION,
             "run_id": run_id, "status": "processing", "source": path.relative_to(root).as_posix(),
             "source_sha256": sha256(path), "versions": {}, "artifacts": {},
             "extraction": {"strategy": self.settings.extractor},
@@ -127,7 +130,7 @@ class InvoicePipeline:
         run_id = run_id or uuid.uuid4().hex
         output = new_run(root, run_id)
         manifest = {
-            "schema_version": SCHEMA_VERSION, "run_id": run_id, "status": "processing",
+            "schema_version": LLM_SCHEMA_VERSION if isinstance(self.extractor, LocalLlmExtractor) else SCHEMA_VERSION, "run_id": run_id, "status": "processing",
             "source": source, "source_sha256": prior.get("source_sha256"),
             "versions": prior.get("versions", {}), "artifacts": {},
             "extraction": {"strategy": self.settings.extractor},

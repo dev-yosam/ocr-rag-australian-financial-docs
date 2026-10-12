@@ -3,7 +3,7 @@ from app.core.files import json_text
 from app.extraction.block_contract import SYSTEM, response_schema
 from app.openai_extraction.config import OpenAISettings
 
-PROMPT_VERSION = "tirbic-15-v2-openai-blocks-v1"
+PROMPT_VERSION = "tirbic-15-v3-openai-blocks-v2"
 
 
 def build_request(document: dict, settings: OpenAISettings) -> dict:

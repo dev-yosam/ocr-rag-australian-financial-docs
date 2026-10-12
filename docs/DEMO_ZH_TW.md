@@ -1,5 +1,9 @@
 # Windows 本機示範操作指南
 
+LLM 金額格式更新（2026-10-11）：Qwen／Gemini／GPT 的 `total_cost`、`gst`
+已知值為兩位小數字串，例如 `"51.10"`。缺值原因維持原樣，
+`taxable_sale_extent` 仍為 0–1 數值。舊結果不改寫，請用新 run 測試。
+
 若要使用 **GPT 雲端 API** 重用現有 CPU／Cetus OCR 結果，請看
 [GPT 中文操作指南](OPENAI_ZH_TW.md)。`--extractor openai` 會直接呼叫 OpenAI，
 不需 dry run，也不需本機 GPU 或 Qwen 環境。
@@ -190,7 +194,8 @@ extracted.json ＋ review.json
 ```
 
 Qwen 在此模式讀 OCR Markdown，不直接看原圖。它不使用舊 matching 規則補值。
-Python 仍依總額計算既有 `>=1000` 旗標；其他缺值不猜補。
+三條 LLM 使用 tirbic-15-v3；Python 不重算 `>=1000` 旗標，矛盾只列入 review。
+缺值使用三種原因字串，找不到 buyer_identity 時用空字串；taxable_sale_extent 為 0–1。
 
 示範說明：「前段把圖片變成可讀文字和表格；後段理解文字並填入欄位。
 程式檢查輸出格式，有疑問的來源會標記人工確認，不只因引文問題就丟棄整張結果。」
@@ -262,7 +267,7 @@ outputs/<本次 run ID>/
 | `failed` | 本次流程未完成；查看保留下來的 OCR、模型回應或失敗資訊。 |
 
 CLI 的 `completed_needs_review` 仍回傳退出碼 0，因為有可檢查的輸出；不能只看退出碼
-就把所有欄位當成正確。`null` 可能是原圖沒有該資料、日期有歧義，或模型漏填。
+就把所有欄位當成正確。v3 缺值原因仍須與原圖／ground truth 核對，格式通過不代表原因正確。
 
 ## 7. 只重跑 Qwen，省去 OCR
 
@@ -305,7 +310,8 @@ Qwen 因記憶體壓力被助手停止，沒有欄位 JSON，不能與另一張�
 | `app/paddleocr/worker.py` | 執行完整 PaddleOCR-VL 解析。 |
 | `app/llm/worker.py` | 在獨立環境載入並執行本機 Qwen。 |
 | `app/llm/contract.py` | 15 欄提示、基本驗證、來源確認事項。 |
-| `app/schemas/invoice.py` | 正式欄位名稱、型別及分類選項。 |
+| `app/schemas/tirbic_llm.py` | 三條 LLM 的 v3 欄位、型別、schema 與共用英文定義。 |
+| `app/schemas/invoice.py` | 舊 rules 基準的 v2 欄位。 |
 
 這套終端 demo 不需要啟動 Docker、RAGFlow 或網頁 API，也不需要 API key。
 本指南只新增操作說明；沒有更動程式、啟動推論、安裝依賴或修改 Git。

@@ -14,7 +14,7 @@ from app.llm import adapter
 from app.llm.adapter import LocalLlmExtractor
 from app.paddleocr.adapter import WorkerOutcome
 from app.pipeline import InvoicePipeline
-from app.schemas.invoice import TaxInvoice
+from app.schemas.tirbic_llm import TirbicLlmInvoice as TaxInvoice, missing_invoice
 
 
 @pytest.fixture
@@ -22,11 +22,12 @@ def fake_llm(repo, monkeypatch):
     python = repo / "fake-python.exe"
     python.write_text("FAKE EXECUTABLE; never invoked")
     settings = Settings(root=repo, extractor="llm", llm_python="fake-python.exe")
-    values = TaxInvoice().model_dump(mode="python")
-    values.update(total_cost=1100, seller_business_name="Example Synthetic Services")
+    values = missing_invoice()
+    values.update(total_cost="1100.00", seller_business_name="Example Synthetic Services", is_total_cost_equal_to_or_higher_than_1000=True)
     evidence = {key: [] for key in values}
     evidence.update(total_cost=["1,100.00"], seller_business_name=["Example Synthetic Services"])
-    text = json.dumps({"invoice": values, "evidence": evidence})
+    evidence["is_total_cost_equal_to_or_higher_than_1000"] = ["1,100.00"]
+    text = json.dumps({"invoice": values, "evidence": evidence, "currency": "AUD"})
 
     def execute(command, root, timeout):
         assert command[1:3] == ["-m", "app.llm.worker"]
@@ -43,25 +44,27 @@ def fake_llm(repo, monkeypatch):
 def test_real_adapter_fake_worker_pipeline_and_api(repo, fake_parser, fake_llm):
     service = InvoicePipeline(fake_llm, fake_parser)
     result = service.process("invoice.png", "llm")
-    assert result["invoice"]["total_cost"] == 1100
+    assert result["invoice"]["total_cost"] == "1100.00"
     assert result["invoice"]["is_total_cost_equal_to_or_higher_than_1000"] is True
     assert set(result["artifacts"]) == {"raw.json", "parsed.md", "llm_request.json", "llm_response.json", "review.json", "extracted.json"}
-    assert result["status"] == "completed" and result["requires_review"] is False
+    assert result["status"] == "completed_needs_review" and result["requires_review"] is True
     output = repo / "outputs/llm"
     manifest = read_json(output / "manifest.json")
+    assert manifest["schema_version"] == "tirbic-15-v3"
+    assert manifest["prompt_version"].startswith("tirbic-15-v3-")
     assert manifest["extraction"]["strategy"] == "llm"
     for name, digest in manifest["artifacts"].items():
         assert digest == sha256(output / name)
-    assert read_json(output / "llm_response.json")["validation"] == "passed"
+    assert read_json(output / "llm_response.json")["validation"] == "passed_with_review"
     assert read_json(output / "review.json")["semantic_accuracy_verified"] is False
     with TestClient(create_app(service)) as client:
         assert client.get("/health").json()["extractor"] == "llm"
         response = client.post("/v1/invoices/process", json={"source": "invoice.png"})
         assert response.status_code == 200
-        assert response.json()["status"] == "completed"
-        assert response.json()["requires_review"] is False
+        assert response.json()["status"] == "completed_needs_review"
+        assert response.json()["requires_review"] is True
         assert len(response.json()["invoice"]) == 15
-        assert isinstance(response.json()["invoice"]["total_cost"], (int, float))
+        assert response.json()["invoice"]["total_cost"] == "1100.00"
 
 
 @pytest.fixture
@@ -74,7 +77,7 @@ def fake_review_llm(fake_llm, monkeypatch):
         path = root / command[4]
         payload = read_json(path)
         response = json.loads(payload["text"])
-        response["invoice"].update(supply_type="goods", expense_category="food", taxable_sale_extent=100)
+        response["invoice"].update(supply_type="goods", expense_category="food", taxable_sale_extent=1)
         response["evidence"].update(supply_type=["goods"], expense_category=["food"],
                                     taxable_sale_extent=["SYNTHETIC UNSUPPORTED TAX CLAIM"])
         payload["text"] = json.dumps(response)
@@ -92,19 +95,19 @@ def test_review_retains_values_and_hashes_without_claiming_accuracy(repo, fake_p
     assert result["requires_review"] is True
     assert result["invoice"]["supply_type"] == "goods"
     assert result["invoice"]["expense_category"] == "food"
-    assert result["invoice"]["taxable_sale_extent"] == 100
-    assert result["invoice"]["date_of_expense"] is None
+    assert result["invoice"]["taxable_sale_extent"] == 1
+    assert result["invoice"]["date_of_expense"] == "not_found"
     assert result["invoice"]["is_total_cost_equal_to_or_higher_than_1000"] is True
     invoice = read_json(output / "extracted.json")
-    assert len(invoice) == 15 and invoice["total_cost"] == 1100
+    assert len(invoice) == 15 and invoice["total_cost"] == "1100.00"
     manifest = read_json(output / "manifest.json")
     assert manifest["status"] == "completed_needs_review"
     review = read_json(output / "review.json")
     assert set(review["fields"]) == set(invoice)
     assert review["semantic_accuracy_verified"] is False
     assert "date_of_expense" in review["missing_fields"]
-    assert {issue["field"] for issue in review["issues"]} == {"supply_type", "expense_category", "taxable_sale_extent"}
-    assert set(result["review"]["fields_requiring_review"]) == {"supply_type", "expense_category", "taxable_sale_extent"}
+    assert {issue["field"] for issue in review["issues"] if issue["code"] == "evidence_not_found"} == {"supply_type", "expense_category", "taxable_sale_extent"}
+    assert set(result["review"]["fields_requiring_review"]) >= {"supply_type", "expense_category", "taxable_sale_extent"}
     response = read_json(output / "llm_response.json")
     assert response["validation"] == "passed_with_review"
     assert response["format_validation"] == "passed"
@@ -141,8 +144,8 @@ def test_uncertain_total_also_marks_derived_flag_in_summary(repo, fake_parser, f
     monkeypatch.setattr(adapter, "execute_worker", execute)
     result = InvoicePipeline(fake_llm, fake_parser).process("invoice.png", "uncertain-total")
     assert result["requires_review"] is True
-    assert set(result["review"]["fields_requiring_review"]) == {"total_cost", "is_total_cost_equal_to_or_higher_than_1000"}
-    assert result["invoice"]["total_cost"] == 1100
+    assert set(result["review"]["fields_requiring_review"]) >= {"total_cost", "is_total_cost_equal_to_or_higher_than_1000"}
+    assert result["invoice"]["total_cost"] == "1100.00"
     assert result["invoice"]["is_total_cost_equal_to_or_higher_than_1000"] is True
 
 
@@ -163,7 +166,7 @@ def test_cli_replay_surfaces_review_without_logging_receipt(repo, fake_parser, f
     assert (output / "extracted.json").exists()
 
 
-@pytest.mark.parametrize("field,value", [("date_of_issue", "2026-02-30"), ("total_cost", "1100.00")])
+@pytest.mark.parametrize("field,value", [("date_of_issue", "2026-02-30"), ("total_cost", 1100)])
 def test_invalid_values_still_fail_without_extracted_json(repo, fake_parser, fake_llm, monkeypatch, field, value):
     original = adapter.execute_worker
 

@@ -15,7 +15,7 @@ from app.openai_extraction.client import OpenAIClient, OpenAIError
 from app.openai_extraction.config import ENDPOINT, MODEL, OpenAISettings
 from app.openai_extraction.contract import build_request
 from app.openai_extraction.pipeline import OpenAIPipeline
-from app.schemas.invoice import TaxInvoice
+from app.schemas.tirbic_llm import TirbicLlmInvoice as TaxInvoice, missing_invoice
 
 KEY = "sk-SYNTHETIC-NOT-A-REAL-API-KEY"
 RAW = [{"res": {"input_path": "DO-NOT-SEND", "parsing_res_list": [
@@ -26,8 +26,8 @@ RAW = [{"res": {"input_path": "DO-NOT-SEND", "parsing_res_list": [
 
 
 def answer():
-    invoice = TaxInvoice().model_dump(mode="python")
-    invoice.update(total_cost=Decimal("1100.00"))
+    invoice = missing_invoice()
+    invoice.update(total_cost="1100.00")
     invoice[THRESHOLD] = False  # Deliberately inconsistent: retain, do not repair.
     evidence = {name: [] for name in FIELDS}
     evidence["total_cost"] = [{"block_ref": "p1:b1", "quote": "1100.00"}]
@@ -108,7 +108,7 @@ def test_wire_request_response_and_usage(tmp_path):
     text, metadata = fake_client(handler=handler).generate(request, tmp_path)
     assert len(calls) == 1
     assert (tmp_path / "llm_response.json").read_bytes() == body
-    assert json.loads(text)["invoice"]["total_cost"] == 1100
+    assert json.loads(text)["invoice"]["total_cost"] == "1100.00"
     assert metadata["usage"]["total_tokens"] == 300
     assert metadata["usage"]["output_tokens_details"]["reasoning_tokens"] == 20
     assert metadata["model_version"] == MODEL
@@ -197,6 +197,8 @@ def test_replay_preserves_original_values_provenance_and_usage(saved):
     assert read_json(output / "extracted.json") == answer()["invoice"]
     manifest = read_json(output / "manifest.json")
     assert manifest["provider"] == "openai_api" and manifest["ocr_status"] == "reused"
+    assert manifest["schema_version"] == "tirbic-15-v3"
+    assert manifest["prompt_version"].startswith("tirbic-15-v3-")
     assert not manifest["semantic_accuracy_verified"]
     assert manifest["generation"]["usage"]["input_tokens"] == 100
     assert manifest["replayed_from"]["manifest_sha256"] == sha256(saved / "outputs/original/manifest.json")
