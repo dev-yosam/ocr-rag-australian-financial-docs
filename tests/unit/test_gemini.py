@@ -12,7 +12,7 @@ from app.gemini.client import GeminiClient, GeminiError
 from app.gemini.config import ENDPOINT, MODEL, GeminiSettings
 from app.gemini.contract import FIELDS, THRESHOLD, assess, build_request, ocr_blocks, response_schema
 from app.gemini.pipeline import GeminiPipeline
-from app.schemas.invoice import TaxInvoice
+from app.schemas.tirbic_llm import TirbicLlmInvoice as TaxInvoice, missing_invoice
 
 KEY = "FAKE-KEY-NOT-A-REAL-CREDENTIAL"
 RAW = [{"res": {"input_path": "/private/do-not-send.png", "parsing_res_list": [
@@ -25,8 +25,8 @@ RAW = [{"res": {"input_path": "/private/do-not-send.png", "parsing_res_list": [
 
 
 def answer():
-    invoice = TaxInvoice().model_dump(mode="python")
-    invoice.update(total_cost=Decimal("1100.00"), seller_abn="12345678901")
+    invoice = missing_invoice()
+    invoice.update(total_cost="1100.00", seller_abn="12345678901")
     # Deliberately wrong derived value: Python must retain it, flag it, never fix it.
     invoice[THRESHOLD] = False
     evidence = {field: [] for field in FIELDS}
@@ -85,7 +85,7 @@ def test_bad_or_oversized_blocks_never_truncated(raw):
 def test_schema_and_request_have_no_tools_or_local_paths():
     schema = response_schema()
     assert set(schema["properties"]["invoice"]["required"]) == set(FIELDS)
-    assert schema["properties"]["invoice"]["properties"]["total_cost"]["anyOf"][0]["type"] == "number"
+    assert schema["properties"]["invoice"]["properties"]["total_cost"]["anyOf"][0]["type"] == "string"
     request = build_request(ocr_blocks(RAW), 8192)
     assert request["generationConfig"]["responseJsonSchema"] == schema
     assert "tools" not in request and KEY not in json_text(request)
@@ -98,14 +98,14 @@ def test_assessment_preserves_decimals_nulls_and_incorrect_threshold():
     assert invoice == answer()["invoice"]
     assert invoice[THRESHOLD] is False
     assert {"field": THRESHOLD, "code": "threshold_inconsistent_not_corrected"} in review["issues"]
-    assert invoice["total_cost"] == Decimal("1100.00")
-    assert type(json.loads(json_text(invoice))["total_cost"]) is float
-    assert json.loads(json_text(invoice))["gst"] is None
+    assert invoice["total_cost"] == "1100.00"
+    assert type(json.loads(json_text(invoice))["total_cost"]) is str
+    assert json.loads(json_text(invoice))["gst"] == "not_found"
     assert not review["semantic_accuracy_verified"]
 
 
 @pytest.mark.parametrize("field,value", [
-    ("total_cost", "1100.00"), ("gst", True), ("date_of_issue", "2026-02-30"),
+    ("total_cost", Decimal("1100.00")), ("gst", True), ("date_of_issue", "2026-02-30"),
     ("date_of_issue", "20260916"), ("paid", 1), ("buyer_identity", None),
     ("seller_abn", "123"), ("supply_type", "service"), ("expense_category", "unknown"),
     ("document_type", "bank_statement"), ("taxable_sale_extent", 101), ("gst", Decimal("1.001")),
@@ -145,7 +145,7 @@ def test_missing_or_bad_evidence_retains_values(evidence):
     value = answer()
     value["evidence"]["total_cost"] = evidence
     invoice, validation, review = assess(json_text(value), ocr_blocks(RAW))
-    assert validation["valid"] and invoice["total_cost"] == 1100
+    assert validation["valid"] and invoice["total_cost"] == "1100.00"
     assert "total_cost" in review["fields_requiring_review"]
 
 
@@ -163,7 +163,7 @@ def test_http_contract_and_exact_provider_body(tmp_path):
     text, metadata = fake_client(handler=handle).generate(request_body, tmp_path)
     assert len(calls) == 1 and metadata["finish_reason"] == "STOP"
     assert (tmp_path / "llm_response.json").read_bytes() == body
-    assert json.loads(text)["invoice"]["total_cost"] == 1100
+    assert json.loads(text)["invoice"]["total_cost"] == "1100.00"
 
 
 @pytest.mark.parametrize("status", [301, 400, 401, 403, 404, 429, 500, 503])
@@ -285,6 +285,8 @@ def test_pipeline_replay_hashes_and_immutable_original(saved):
     assert (output / "raw.json").read_bytes() == (saved / "outputs/original/raw.json").read_bytes()
     manifest = read_json(output / "manifest.json")
     assert manifest["network_attempted"] and manifest["model"] == MODEL
+    assert manifest["schema_version"] == "tirbic-15-v3"
+    assert manifest["prompt_version"].startswith("tirbic-15-v3-")
     assert manifest["replayed_from"]["manifest_sha256"] == digest
     for name, digest in manifest["artifacts"].items():
         assert sha256(output / name) == digest

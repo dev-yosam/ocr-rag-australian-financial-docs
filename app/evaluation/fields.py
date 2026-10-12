@@ -11,6 +11,7 @@ import re
 from app.core.errors import InputError
 from app.extraction.invoice import parse_date
 from app.schemas.invoice import TaxInvoice, SUPPLY_TYPES, EXPENSE_CATEGORIES
+from app.schemas.tirbic_llm import MISSING_REASONS
 
 FIELDS = tuple(TaxInvoice.model_fields)
 BOOL_FIELDS = {"paid", "is_total_cost_equal_to_or_higher_than_1000"}
@@ -40,7 +41,7 @@ def prediction_value(value, azure):
     return populated[0][1], False, has_source
 
 
-def normalize(field, value):
+def normalize(field, value, *, standard_version="tirbic-15-v2"):
     if value is INVALID or value is None:
         return INVALID
     if field == "document_type":
@@ -72,7 +73,8 @@ def normalize(field, value):
             return INVALID
         try:
             result = Decimal(text.replace(",", ""))
-            if not result.is_finite() or (field == "taxable_sale_extent" and not 0 <= result <= 100):
+            maximum = 1 if standard_version == "tirbic-15-v3" else 100
+            if not result.is_finite() or (field == "taxable_sale_extent" and not 0 <= result <= maximum):
                 return INVALID
             return result
         except InvalidOperation:
@@ -86,7 +88,10 @@ def normalize(field, value):
     return value  # Names and classifications use exact matching, not fuzzy scores.
 
 
-def evaluate_fields(reference: dict, prediction: dict, *, prediction_format: str = "plain") -> dict:
+def evaluate_fields(reference: dict, prediction: dict, *, prediction_format: str = "plain",
+                    standard_version: str = "tirbic-15-v2") -> dict:
+    if standard_version not in {"tirbic-15-v2", "tirbic-15-v3"}:
+        raise InputError("Unsupported evaluation standard")
     if prediction_format not in {"plain", "azure"}:
         raise InputError("Unsupported evaluation format")
     if not isinstance(reference, dict) or not isinstance(prediction, dict):
@@ -107,20 +112,30 @@ def evaluate_fields(reference: dict, prediction: dict, *, prediction_format: str
             continue
         expected = reference[field]
         value, missing, _ = prediction_value(prediction.get(field), azure)
+        if standard_version == "tirbic-15-v3":
+            if expected is None or (field == "buyer_identity" and expected == "not_found"):
+                raise InputError("Invalid v3 ground-truth missing value")
+            if isinstance(expected, str) and (expected in MISSING_REASONS or (field == "buyer_identity" and expected == "")):
+                correct = field in prediction and type(value) is str and value == expected
+                results[field] = {"status": "correct" if correct else "incorrect",
+                                  "reason": "exact_missing_reason_match" if correct else "missing_reason_mismatch"}
+                continue
+            if isinstance(value, str) and value in MISSING_REASONS:
+                value, missing = INVALID, False
         not_found = expected is None or (field == "buyer_identity" and expected == "")
         if not_found:
             correct = missing
             reason = "not_found" if correct else "unexpected_value_or_source"
         else:
-            normal_expected = normalize(field, expected)
+            normal_expected = normalize(field, expected, standard_version=standard_version)
             if normal_expected is INVALID:
                 raise InputError("Invalid ground-truth field value")
-            normal_value = normalize(field, value)
+            normal_value = normalize(field, value, standard_version=standard_version)
             correct = not missing and normal_value is not INVALID and normal_value == normal_expected
             reason = "match" if correct else "missing_or_mismatched_value"
         results[field] = {"status": "correct" if correct else "incorrect", "reason": reason}
     correct = sum(r["status"] == "correct" for r in results.values())
     incorrect = sum(r["status"] == "incorrect" for r in results.values())
-    return {"standard_version": "tirbic-15-v2", "prediction_format": prediction_format,
+    return {"standard_version": standard_version, "prediction_format": prediction_format,
             "fields": results, "correct": correct, "incorrect": incorrect,
             "evaluated": correct + incorrect, "skipped": len(results) - correct - incorrect}

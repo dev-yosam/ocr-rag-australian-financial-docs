@@ -5,8 +5,8 @@ from app.extraction.block_contract import (
     assess, ocr_blocks, response_schema, strict_json,
 )
 
-# Preserve the historical Gemini prompt identifier; prompt text is unchanged.
-PROMPT_VERSION = "tirbic-15-v2-gemini-blocks-v1"
+# Provider identifier; shared v3 field definitions live in schemas/tirbic_llm.py.
+PROMPT_VERSION = "tirbic-15-v3-gemini-blocks-v2"
 
 
 def build_request(document: dict, max_output_tokens: int) -> dict:

@@ -1,5 +1,29 @@
 # Offline evaluation: labelling-standards.pdf
 
+## New LLM standard: tirbic-15-v3
+
+For current Qwen/Gemini/GPT results, explicitly pass
+`--standard-version tirbic-15-v3` to `scripts/evaluate_fields.py`.
+The default remains v2 for existing rules/archived comparisons.
+
+V3 requires exact matches for `not_found`, `file_quality_insufficient`, and
+`cannot_be_determined`. Null, omitted predictions, different reasons and spelling/case
+variants do not match a reference reason. Reference nulls are rejected rather than
+automatically reinterpreted. Absent buyer_identity is specifically `""` (not not_found),
+and its evaluation is gated by the reference threshold, never the predicted flag.
+Taxable fractions are in 0..1 with no automatic conversion from percentages.
+
+```powershell
+python scripts/evaluate_fields.py --expected private_inputs/reference.json --predicted outputs/new_llm_run/extracted.json --standard-version tirbic-15-v3
+```
+
+Review the ground truth before using v3: a v2 value of 1 meant 1%, whereas v3 uses
+1 for 100%. The report still returns correct/incorrect/skipped counts; exact reason
+matches are correct evaluations, not proof that the model inspected the original image.
+Precision/recall aggregation is not implemented by this change.
+
+## Legacy v2 behavior
+
 This implements the one-page user-provided evaluation standard plus its
 not-found clarification. `app/evaluation/fields.py` is independent of OCR/GPU,
 RAGFlow and network services. No private document values appear in reports/logs.

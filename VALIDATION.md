@@ -1,5 +1,47 @@
 # Implementation and validation record
 
+## 2026-10-11：LLM 金額統一為兩位小數字串
+
+- 依使用者後續要求，三條 LLM 管線的 total_cost／gst 改為無貨幣符號的
+  兩位小數字串，例如 "51.10"、"32.00"。缺值原因及 0–1 taxable_sale_extent 不變。
+- 共用 prompt／JSON Schema／Pydantic 型別一起更新；provider prompt 尾碼升至 v2，
+  用以區別同屬 tirbic-15-v3 的先前數字金額輸出。Python 不改寫或四捨五入模型答案。
+- 來源金額及門檻檢查只在比較時使用 Decimal，序列化保留字串與尾零。
+  舊輸出、v2 rules、OCR、Cetus 任務保持原狀；數值評估仍可比較等值金額，
+  格式合規由抽取驗證檢查，兩者用途不同。
+- 測試涵蓋零、負數、尾零、缺值、錯誤型別、貨幣符號、千分位、超過兩位小數、
+  來源只印一位小數及門檻比較。全部使用合成資料、fake worker／HTTP，未呼叫真實 API。
+- `.venv\\Scripts\\python.exe -m pytest -m "not integration" -q --tb=short`：
+  **743 passed、2 skipped、4 deselected**；略過為 Windows 符號連結權限，
+  另有既有 Starlette／AnyIO 棄用警告。`git diff --check` 通過。
+- 已核對 [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+  與 [Gemini Structured Outputs](https://ai.google.dev/gemini-api/docs/structured-output)
+  文件；這些離線測試不等同於真實模型已遵守新格式。
+
+## 2026-10-11：Qwen／Gemini／GPT 統一 TIRBIC v3
+
+- 依使用者提供的三頁 labelling-standards (1).pdf 核對所有表格；使用 pypdfium2
+  擷取文字並逐頁渲染檢視。另依使用者明確回覆，taxable_sale_extent 改成 0–1。
+- 新增 app/schemas/tirbic_llm.py，統一 15 欄型別、invoice schema、英文欄位定義及
+  三種 exact missing reasons。buyer_identity 找不到時依個別規定用空字串。
+- 三條 LLM 的新 manifest／prompt 為 v3。Qwen 不再由 Python 重算門檻旗標，
+  保留模型答案並標示不一致；所有管線都拒絕 invoice null／百分比 100，沒有暗中轉換。
+- 保持 Qwen 的 Markdown 與 Gemini／GPT 的 OCR blocks 輸入格式。共同的是欄位契約，
+  不是完全相同的 source wrapper 或引文格式。缺值原因仍須原圖／ground truth 確認，
+  不把 OCR 未輸出文字當成已證明原圖缺字或模糊。缺值標籤保留並列入 review。
+- 離線評估新增明確 --standard-version tirbic-15-v3，支援缺值原因 exact match、
+  buyer 的 ground-truth 門檻及比例範圍；預設 v2 不變，沒有新增 precision/recall 指標。
+- 75 項新增 synthetic 契約測試涵蓋所有欄位／原因、null／遺漏拒絕、0 與 false、
+  比例邊界、共同 prompt/schema、非改值及評估。既有 provider fake-HTTP、Qwen fake-worker
+  測試也遷移至 v3；實際資料、API keys、付費 API 及真實 Qwen 推論均未使用。
+- 完整非 integration 測試：**700 passed、2 skipped、4 deselected、1 warning**，11.48 秒。
+  skips 是既有 Windows symlink 權限；warning 是 Starlette／AnyIO 棄用。
+- JSON Schema 的 anyOf／enum 寫法已核對官方文件：
+  [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)；
+  [Gemini Structured Outputs](https://ai.google.dev/gemini-api/docs/structured-output)。
+  本次沒有改模型／API endpoint／金鑰處理／依賴。真實 provider 接受新版 request 仍待使用者驗證。
+- 不改寫舊 run，不變更 v2 rules、純 OCR 或 Cetus 批次；沒有 stage、commit、push。
+
 ## 2026-10-11：批次 300 秒上限與未完成文件優先
 
 - PBS 批次預設單文件 timeout 改為 300 秒，仍允許明確覆寫；單文件 CLI 的預設不變。

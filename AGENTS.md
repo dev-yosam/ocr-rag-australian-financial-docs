@@ -1,5 +1,20 @@
 # Engineering rules
 
+User-approved LLM monetary-format follow-up (2026-10-11): known total_cost and gst
+are JSON strings with exactly two decimals and no currency symbols or separators,
+e.g. "51.10". Keep missing reasons, numeric taxable fraction, legacy rules and old
+artifacts unchanged. Shared prompts/schema enforce this; do not silently rewrite
+model responses. Record the revision with provider prompt suffix v2.
+
+User-approved unified LLM schema (2026-10-11): use the three-page attachment
+labelling-standards (1).pdf for Qwen, Gemini and GPT; shared schema tirbic-15-v3.
+All fields use exact missing-reason strings; absent buyer_identity remains "" per
+the field-specific exception. The user explicitly chose taxable_sale_extent 0..1
+(100% = 1.0). Python must not rewrite any model value, including the threshold flag.
+Preserve v2 rules, pure OCR, source input formats and old artifacts; create new runs.
+Treat OCR-only missing-reason predictions as unverified, not visual inspection.
+No live API calls, credential reads or Git mutations for implementation/testing.
+
 User documentation privacy preference (2026-10-11): never include the user's
 actual university/HPC account ID in README files, manuals, or shared documentation.
 Use YOUR_HPC_ID placeholders, $HOME, or the current login name as appropriate.

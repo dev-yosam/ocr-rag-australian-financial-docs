@@ -10,7 +10,7 @@ from app.gemini.client import GeminiClient, GeminiError
 from app.gemini.config import GeminiSettings
 from app.gemini.contract import PROMPT_VERSION, assess, build_request, ocr_blocks, strict_json
 from app.extraction.ocr_artifacts import load_ocr
-from app.schemas.invoice import SCHEMA_VERSION
+from app.schemas.tirbic_llm import SCHEMA_VERSION
 
 ARTIFACTS = ("raw.json", "parsed.md", "ocr_blocks.json", "llm_request.json",
              "llm_response.json", "validation.json", "review.json", "extracted.json")

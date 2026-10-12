@@ -16,12 +16,14 @@ def main(argv=None):
     parser.add_argument("--expected", required=True, help="Repository-relative ground-truth field map")
     parser.add_argument("--predicted", required=True, help="Repository-relative prediction JSON")
     parser.add_argument("--prediction-format", choices=["plain", "azure"], default="plain")
+    parser.add_argument("--standard-version", choices=["tirbic-15-v2", "tirbic-15-v3"], default="tirbic-15-v2")
     parser.add_argument("--run-id")
     args = parser.parse_args(argv)
     try:
         expected = contained(ROOT, args.expected)
         predicted = contained(ROOT, args.predicted)
-        result = evaluate_fields(read_json(expected), read_json(predicted), prediction_format=args.prediction_format)
+        result = evaluate_fields(read_json(expected), read_json(predicted), prediction_format=args.prediction_format,
+                                 standard_version=args.standard_version)
         run_id = args.run_id or "evaluation-" + uuid.uuid4().hex
         output = new_run(ROOT, run_id)
         write_json(output / "evaluation.json", result)

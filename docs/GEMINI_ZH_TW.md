@@ -139,7 +139,7 @@ HTTP 狀態和安全分類，不印 key 或原始回覆。`ok=true` 只代表模
 | `llm_response.json` | HTTP 200 的原始回答，含候選文字、usageMetadata、modelVersion（provider 有提供時）；不是直接的 15 欄 JSON |
 | `validation.json` | 15 欄、型別、合法日期、enum、有限 Decimal、ABN 格式等檢查；不評分準確率 |
 | `review.json` | 缺值、無 evidence、引文不在引用區塊、threshold 不一致；不回填或改值 |
-| `extracted.json` | 基本驗證通過才產生；所有 15 欄、數值為 JSON number，buyer_identity 缺值為空字串，其餘未知值為 null |
+| `extracted.json` | v3 共用 15 欄；total_cost／gst 為兩位小數字串（如 `"51.10"`），缺值為三種原因字串；buyer_identity 找不到時為空字串；taxable_sale_extent 為 0–1 數值 |
 | `manifest.json` | 原來源／OCR provenance、模型、prompt 版本、設定、雜湊、狀態與耗時 |
 
 `completed_needs_review` 表示格式通過但有上述待確認事項。`completed` 也不等於
@@ -181,7 +181,8 @@ unset GEMINI_API_KEY
 
 ## 7. 開發檔案與驗證範圍
 
-- `app/gemini/contract.py`：prompt、15 欄 response schema、OCR block 選取與非修改式驗證。
+- `app/schemas/tirbic_llm.py`：三條 LLM 共用 v3 欄位、英文定義與型別；詳見 [統一契約](TIRBIC_SCHEMA.md)。
+- `app/gemini/contract.py`：Gemini request 包裝；共用 block_contract 處理 OCR block 與非修改式驗證。
 - `app/gemini/client.py`：固定 Google HTTPS endpoint，單次請求、原回答、錯誤遮蔽。
 - `app/gemini/pipeline.py`：已存 OCR 雜湊檢查、新 run、狀態及 artifacts。
 - `app/gemini/config.py`：兩個允許的模型名稱和 Gemini 專屬設定，不讀 Qwen/Paddle 設定。
