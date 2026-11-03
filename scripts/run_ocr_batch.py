@@ -3,6 +3,7 @@ import argparse
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from dataclasses import replace
 import hashlib
 import os
 from pathlib import Path
@@ -22,6 +23,17 @@ from app.core.files import contained, json_text, read_json, sha256, write_json
 from app.ocr_pipeline import OcrPipeline
 
 EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
+
+
+def parse_folder_timeouts(specs: list[str]) -> dict[str, int]:
+    """Exact top-level folder names relative to --input, never filename substrings."""
+    result = {}
+    for spec in specs:
+        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9_-]*):([0-9]+)", spec)
+        if not match or not 1 <= int(match[2]) <= 3600 or match[1] in result:
+            raise InputError("Folder timeout must be unique FOLDER:SECONDS (1..3600)")
+        result[match[1]] = int(match[2])
+    return result
 
 
 def inventory(root: Path, directory: str) -> list[dict]:
@@ -96,14 +108,23 @@ def save_summary(path: Path, summary: dict) -> None:
 
 
 def batch(settings: Settings, directory: str, batch_id: str, *, resume: bool = False,
-          skip_failed: bool = False, time_budget: float = 0, pipeline=None) -> int:
+          skip_failed: bool = False, time_budget: float = 0, pipeline=None,
+          folder_timeouts: dict[str, int] | None = None) -> int:
     if skip_failed and not resume:
         raise InputError("--skip-failed requires --resume")
     root = settings.root.resolve()
+    folder_timeouts = parse_folder_timeouts([f"{key}:{value}" for key, value in (folder_timeouts or {}).items()])
+    if pipeline is not None and folder_timeouts:
+        raise InputError("A fixed injected pipeline cannot use folder timeout overrides")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,59}", batch_id):
         raise InputError("Invalid batch ID (letters, digits, underscores, hyphens; max 60)")
     started = time.monotonic()
     files = inventory(root, directory)
+    input_root = contained(root, directory)
+    top_folders = {Path(row["source"]).relative_to(input_root.relative_to(root)).parts[0]
+                   for row in files if len(Path(row["source"]).relative_to(input_root.relative_to(root)).parts) > 1}
+    if set(folder_timeouts) - top_folders:
+        raise InputError("Folder timeout names must match populated top-level input folders")
     destination = contained(root, f"outputs/batches/{batch_id}", must_exist=False)
     destination.mkdir(parents=True, exist_ok=True)
     with batch_lock(destination / ".lock"):
@@ -137,9 +158,9 @@ def batch(settings: Settings, directory: str, batch_id: str, *, resume: bool = F
                        "created_at": datetime.now(timezone.utc).isoformat(),
                        "files": [dict(item, status="pending", attempts=[]) for item in files]}
         summary.update(status="running", per_document_timeout=settings.ocr_timeout,
-                       skip_failed=skip_failed)
+                       skip_failed=skip_failed, folder_timeouts=folder_timeouts)
         save_summary(summary_path, summary)
-        parser = pipeline if pipeline is not None else OcrPipeline(settings)
+        parsers = {settings.ocr_timeout: pipeline if pipeline is not None else OcrPipeline(settings)}
         token = hashlib.sha256(batch_id.encode()).hexdigest()[:8]
         for index, row in enumerate(summary["files"], 1):
             if row["status"] == "completed":
@@ -149,7 +170,9 @@ def batch(settings: Settings, directory: str, batch_id: str, *, resume: bool = F
                 print(f"[{index}/{len(files)}] SKIP previously failed", flush=True)
                 continue
             # Reserve enough time for the whole per-document timeout + final writes.
-            if time_budget and time.monotonic() - started + settings.ocr_timeout + 60 >= time_budget:
+            parts = Path(row["source"]).relative_to(input_root.relative_to(root)).parts
+            timeout = folder_timeouts.get(parts[0], settings.ocr_timeout) if len(parts) > 1 else settings.ocr_timeout
+            if time_budget and time.monotonic() - started + timeout + 60 >= time_budget:
                 summary["status"] = "paused_time_budget"
                 save_summary(summary_path, summary)
                 print("Time budget reached; resubmit this batch with --resume.", flush=True)
@@ -157,17 +180,19 @@ def batch(settings: Settings, directory: str, batch_id: str, *, resume: bool = F
             stem = re.sub(r"[^A-Za-z0-9_-]", "_", Path(row["source"]).stem)[:28] or "document"
             run_id = f"ocrb_{token}_{index:04d}_{stem}_{uuid.uuid4().hex[:8]}"
             attempt = {"run_id": run_id, "output": f"outputs/{run_id}", "status": "running",
-                       "timeout_seconds": settings.ocr_timeout,
+                       "timeout_seconds": timeout,
                        "started_at": datetime.now(timezone.utc).isoformat()}
             row["attempts"].append(attempt)
             row["status"] = "running"
             save_summary(summary_path, summary)
-            print(f"[{index}/{len(files)}] START {run_id}", flush=True)
+            print(f"[{index}/{len(files)}] START {run_id} timeout={timeout}s", flush=True)
             before = time.monotonic()
             try:
                 if sha256(contained(root, row["source"])) != row["sha256"]:
                     raise InputError("Input changed after inventory")
-                parser.parse(row["source"], run_id=run_id)
+                if timeout not in parsers:
+                    parsers[timeout] = OcrPipeline(replace(settings, ocr_timeout=timeout))
+                parsers[timeout].parse(row["source"], run_id=run_id)
                 if not verified_run(root, row):
                     raise PipelineError("OCR output verification failed")
                 row["status"] = attempt["status"] = "completed"
@@ -195,13 +220,16 @@ def main(argv=None) -> int:
     parser.add_argument("--resume", action="store_true", help="Skip verified successes, retry failed/unfinished files once")
     parser.add_argument("--skip-failed", action="store_true",
                         help="With --resume, leave previous failures untouched and process unfinished files")
+    parser.add_argument("--folder-timeout", action="append", default=[], metavar="FOLDER:SECONDS",
+                        help="Override whole-document timeout for an exact top-level input folder; repeatable")
     parser.add_argument("--time-budget-seconds", type=int, default=0, help="0 disables soft deadline; PBS walltime still applies")
     args = parser.parse_args(argv)
     try:
         if args.time_budget_seconds < 0:
             raise InputError("Time budget must not be negative")
         return batch(Settings.from_ocr_env(), args.input, args.batch_id, resume=args.resume,
-                     skip_failed=args.skip_failed, time_budget=args.time_budget_seconds)
+                     skip_failed=args.skip_failed, time_budget=args.time_budget_seconds,
+                     folder_timeouts=parse_folder_timeouts(args.folder_timeout))
     except PipelineError as exc:
         print(str(exc), file=sys.stderr)
         return 1

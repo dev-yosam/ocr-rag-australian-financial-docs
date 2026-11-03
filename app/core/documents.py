@@ -11,7 +11,11 @@ def check_document(path: Path) -> None:
         raise InputError("Document must be a nonempty file of at most 20 MiB")
     if path.suffix.lower() == ".pdf":
         with path.open("rb") as stream:
-            if stream.read(5) != b"%PDF-":
+            # Some readable exports include leading ASCII whitespace (e.g. CRLF).
+            # Allow at most 16 such bytes; never search past arbitrary content.
+            prefix = stream.read(21)
+            header = prefix.lstrip(b" \t\r\n")
+            if len(prefix) - len(header) > 16 or not header.startswith(b"%PDF-"):
                 raise InputError("Invalid PDF signature")
     elif path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
         try:

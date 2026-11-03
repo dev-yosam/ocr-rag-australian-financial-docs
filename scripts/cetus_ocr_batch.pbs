@@ -60,6 +60,13 @@ if (( budget <= PADDLEOCR_TIMEOUT_SECONDS + 60 )); then
     exit 1
 fi
 args=(--input "$INPUT_DIR" --batch-id "$BATCH_ID" --time-budget-seconds "$budget")
+if [[ -n "${OCR_FOLDER_TIMEOUTS:-}" ]]; then
+    # Semicolons avoid qsub -v's comma-separated variable syntax.
+    IFS=';' read -r -a folder_rules <<< "$OCR_FOLDER_TIMEOUTS"
+    for rule in "${folder_rules[@]}"; do
+        args+=(--folder-timeout "$rule")
+    done
+fi
 if [[ "${RESUME:-0}" == "1" ]]; then
     args+=(--resume)
 fi
@@ -67,4 +74,5 @@ if [[ "${SKIP_FAILED:-0}" == "1" ]]; then
     args+=(--skip-failed)
 fi
 echo "Per-document timeout: ${PADDLEOCR_TIMEOUT_SECONDS}s; resume=${RESUME:-0}; skip_failed=${SKIP_FAILED:-0}"
+echo "Top-level folder timeout overrides: ${OCR_FOLDER_TIMEOUTS:-none}"
 .venv-gpu/bin/python "${BATCH_RUNNER:-scripts/run_ocr_batch.py}" "${args[@]}"

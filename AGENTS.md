@@ -1,5 +1,12 @@
 # Engineering rules
 
+User-approved OCR batch follow-up (2026-10-18): inspect the user-supplied
+private_inputs/files(10.18.2026) inventory and PDF page counts, including bank and
+utility statements, for OCR-only processing. Use whole-document timeouts of 300s
+for top-level bs-files and ub-files, 180s for all other folders in this dataset.
+Provide user-operated upload/PBS instructions. No field extraction, automatic
+submission, splitting, content upload by the agent, or changes to old results.
+
 User-approved LLM monetary-format follow-up (2026-10-11): known total_cost and gst
 are JSON strings with exactly two decimals and no currency symbols or separators,
 e.g. "51.10". Keep missing reasons, numeric taxable fraction, legacy rules and old
