@@ -11,6 +11,61 @@ from app.paddleocr.types import ParsedDocument
 from scripts.run_ocr_batch import batch, batch_lock, inventory
 
 
+def test_folder_timeouts_reach_worker_settings_and_survive_resume(batch_repo, monkeypatch):
+    import scripts.run_ocr_batch as runner
+    parser = FakeParser(fail=True)
+    monkeypatch.setattr(runner, "OcrPipeline", lambda settings: OcrPipeline(settings, parser=parser))
+    settings = Settings(root=batch_repo, ocr_timeout=180)
+    assert batch(settings, "private_inputs/synthetic", "synthetic-batch", folder_timeouts={"a": 300}) == 1
+    first = summary(batch_repo)
+    assert [row["attempts"][-1]["timeout_seconds"] for row in first["files"]] == [300, 180, 180]
+    for row in first["files"]:
+        manifest = read_json(batch_repo / row["attempts"][-1]["output"] / "manifest.json")
+        assert manifest["settings"]["ocr_timeout_seconds"] == row["attempts"][-1]["timeout_seconds"]
+    parser.fail = False
+    parser.calls.clear()
+    assert batch(settings, "private_inputs/synthetic", "synthetic-batch", resume=True,
+                 folder_timeouts={"a": 240}) == 0
+    after = summary(batch_repo)
+    assert len(parser.calls) == 1
+    assert [a["timeout_seconds"] for a in after["files"][0]["attempts"]] == [300, 240]
+    assert after["files"][1:] == first["files"][1:]
+
+
+def test_folder_timeout_budget_reserves_actual_document_limit(batch_repo):
+    settings = Settings(root=batch_repo, ocr_timeout=180)
+    assert batch(settings, "private_inputs/synthetic", "synthetic-batch",
+                 time_budget=300, folder_timeouts={"a": 300}) == 2
+    assert summary(batch_repo)["status"] == "paused_time_budget"
+    assert all(not row["attempts"] for row in summary(batch_repo)["files"])
+
+
+def test_timeout_folder_is_exact_top_level_only(batch_repo, monkeypatch):
+    import scripts.run_ocr_batch as runner
+    nested = batch_repo / "private_inputs/synthetic/b/a/nested.pdf"
+    nested.parent.mkdir()
+    nested.write_bytes(b"%PDF- synthetic fixture")
+    monkeypatch.setattr(runner, "OcrPipeline", lambda settings: OcrPipeline(settings, parser=FakeParser()))
+    assert batch(Settings(root=batch_repo, ocr_timeout=180), "private_inputs/synthetic",
+                 "synthetic-batch", folder_timeouts={"a": 300}) == 0
+    row = next(row for row in summary(batch_repo)["files"] if row["source"].endswith("nested.pdf"))
+    assert row["attempts"][-1]["timeout_seconds"] == 180
+
+
+@pytest.mark.parametrize("specs", [["../a:300"], ["a:0"], ["a:3601"], ["a:300", "a:180"], ["a:1.5"]])
+def test_invalid_folder_timeout_spec_rejected(specs):
+    from scripts.run_ocr_batch import parse_folder_timeouts
+    with pytest.raises(InputError):
+        parse_folder_timeouts(specs)
+
+
+def test_unknown_timeout_folder_rejected_before_new_output(batch_repo):
+    with pytest.raises(InputError, match="populated top-level"):
+        batch(Settings(root=batch_repo), "private_inputs/synthetic", "synthetic-batch",
+              folder_timeouts={"misspelled": 300})
+    assert not (batch_repo / "outputs").exists()
+
+
 @pytest.fixture
 def batch_repo(tmp_path):
     for name in ("a/same.pdf", "b/same.pdf", "b/sp ace.PDF"):

@@ -166,6 +166,21 @@ output 位置。每份文件結果仍只有 `raw.json`、`parsed.md`、`manifest
 
 ## 7. 時間不夠時續跑
 
+### 同一批次依頂層子資料夾指定 timeout
+
+預設秒數仍由 `PADDLEOCR_TIMEOUT_SECONDS` 設定。可在 qsub 的 `-v` 引數加入
+`OCR_FOLDER_TIMEOUTS=bs-files:300;ub-files:300`，整個 `-v` 值必須用雙引號包住。
+分號分隔多條規則；名稱必須與 `INPUT_DIR` 下面有待處理檔案的頂層子資料夾完全相符。
+例如預設 180 秒，bs-files 和 ub-files 為每份文件 300 秒。這不是每頁上限，
+也不會自動拆分 PDF；長達數十頁的帳單仍可能超時。其他分類的多頁 PDF 仍用預設值。
+
+本機 runner 的等效參數為 `--folder-timeout bs-files:300 --folder-timeout ub-files:300`。
+每份 attempt、輸出 manifest 與批次摘要會保存實際套用的設定；剩餘時間檢查也使用該份上限。
+續跑須再次帶入相同規則，若刻意更改 timeout，舊 attempts 設定維持原樣。
+新增設定不會讓已核對成功的文件重跑。先上傳更新的 PBS 和 Python runner 再使用。
+若資料含 PDF 標頭前的換行，亦須同步 `app/core/documents.py` 的相容性修正：
+只容許標頭前最多 16 bytes 的 ASCII 空白／換行，來源檔案不會被重寫。
+
 runner 讀取 PBS 實際分配 walltime，扣除 preflight 耗時與餘裕。PBS 批次每份預設 timeout 300 秒；
 剩餘時間不足「一份 timeout＋60 秒」時，提前停止，狀態 `paused_time_budget`，exit code 2。
 這是預定的暫停，不代表 OCR 錯誤；預設可能因此保留約六分鐘及其他預留餘裕沒有使用。

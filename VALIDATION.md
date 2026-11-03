@@ -702,3 +702,11 @@ http_400／error_body_unavailable。根因尚未確定；不再建議重送相�
 延遲或欄位準確率。四項原有 integration 本次未執行，沒有新 OCR／GPU／RAG 驗收。
 使用者可直接依中文指南呼叫一份已保存的 OCR；這才是首次 OpenAI live 驗證。
 未 stage、commit、push、切換分支、安裝依賴或下載模型。
+# 2026-10-18：新批次分資料夾 timeout 與 PDF 檔頭相容性
+
+- 純 OCR batch 支援頂層資料夾 timeout，預設 180 秒，bs-files／ub-files 每份 300 秒。
+- 合成測試確認設定傳入 worker settings／manifest、預算檢查使用當份上限、續跑保留歷史設定、精確頂層匹配與拒絕錯誤規則。
+- PDF 輸入容許標頭前最多 16 bytes ASCII 空白，不接受任意雜訊，也不修改來源文件。
+- 使用者新輸入盤點：637 份（614 PDF、23 JPG），PDF 共 1188 頁；最長 PDF 67 頁。
+- `python -m pytest -m "not integration" -q`：760 passed、2 skipped、4 deselected；兩項 skip 為 Windows symlink 權限，另有既有 Starlette 棄用警告。
+- PBS `bash -n` 通過；沒有執行真實 OCR、上傳資料或提交 PBS。頁數與檔頭檢查不能證明辨識會完成。
